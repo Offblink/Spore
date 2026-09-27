@@ -37,6 +37,7 @@ export async function clearLog() {
 }
 const K_SETTINGS = 'spore.settings';
 const K_SESS = 'spore.sess.';
+const K_IMG = 'spore.img.';
 
 export const DEFAULT_SETTINGS = {
   endpoint: 'https://api.deepseek.com/chat/completions',
@@ -120,6 +121,61 @@ export async function getSession(id) {
   if (live) return live;
   const got = await chrome.storage.local.get(K_SESS + id);
   return got[K_SESS + id] || null;
+}
+
+/**
+ * 截图**单独成键、只写一次**：图片是不可变的，混在会话对象里会被每次
+ * saveSession 整份重写（流式期间每 1.2s 一次，实测 2~3× 写放大），
+ * 还会随 storage.onChanged 把含全部图片的新值广播给每个标签页。
+ * 会话消息里只留 `imageKey` 引用；发请求/渲染时再取回 data URL。
+ */
+export async function putImage(sid, idx, dataUrl) {
+  const key = `${K_IMG}${sid}.${idx}`;
+  await chrome.storage.local.set({ [key]: dataUrl });
+  return key;
+}
+
+/** 取回 data URL（发模型、抽屉渲染、点开大图都走这里）；没有则 null */
+export async function getImage(key) {
+  if (!key) return null;
+  const got = await chrome.storage.local.get(key);
+  return got[key] || null;
+}
+
+/** 消息 → data URL：新格式走 imageKey，老会话兜底直读旧字段 */
+export async function resolveImage(m) {
+  if (!m) return null;
+  if (m.imageKey) return getImage(m.imageKey);
+  return typeof m.image === 'string' && m.image.startsWith('data:') ? m.image : null;
+}
+
+/** 是否带截图（新旧两种形态都算） */
+export function hasImage(m) {
+  return !!(m && (m.imageKey || m.image));
+}
+
+/**
+ * 老会话迁移（幂等，启动 sweep 调一次）：把消息体里的 data URL 挪进独立键。
+ * 与标题 sweep 同款套路：只读取证、逐会话写、失败不断业务。
+ */
+export async function migrateImageKeys() {
+  let moved = 0;
+  for (const e of await listSessions()) {
+    const sess = await getSession(e.id);
+    if (!sess) continue;
+    let dirty = false;
+    for (const [i, m] of sess.messages.entries()) {
+      if (typeof m.image === 'string' && m.image.startsWith('data:')) {
+        m.imageKey = await putImage(sess.id, i, m.image);
+        delete m.image;
+        dirty = true;
+        moved++;
+      }
+    }
+    if (dirty) await saveSession(sess);
+  }
+  if (moved) logEvent(`migrateImageKeys: ${moved} 张图移出会话对象`);
+  return moved;
 }
 
 /**
@@ -234,6 +290,9 @@ export async function patchIndex(id, patch) {
 export async function deleteSession(id) {
   const sess = await getSession(id);
   await chrome.storage.local.remove(K_SESS + id);
+  // 图片键跟着会话一起删（老会话迁移后才会有这些键）
+  const imgKeys = (sess?.messages || []).filter((m) => m.imageKey).map((m) => m.imageKey);
+  if (imgKeys.length) await chrome.storage.local.remove(imgKeys);
   await setIndex((idx) => idx.filter((e) => e.id !== id));
   await cleanupMirror(sess);
 }
@@ -248,7 +307,7 @@ async function cleanupMirror(sess) {
     const day = dateStr(new Date(sess.created));
     const names = [`${sess.id}.md`];
     sess.messages.forEach((m, i) => {
-      if (m.image) names.push(`${sess.id}-${i}.jpg`);
+      if (hasImage(m)) names.push(`${sess.id}-${i}.jpg`);
     });
     let removed = 0;
     for (const n of names) if (await fs.removeSilent(mirrorRel(day, n))) removed++;
@@ -319,7 +378,7 @@ function renderMarkdown(sess) {
     const t = new Date(m.ts || Date.now()).toLocaleTimeString('zh-CN');
     if (m.role === 'user') {
       lines.push('', `## 提问（${t}）`, '');
-      if (m.image) lines.push(`![截图](./${sess.id}-${i}.jpg)`, '');
+      if (hasImage(m)) lines.push(`![截图](./${sess.id}-${i}.jpg)`, '');
       if (m.text) lines.push('> ' + m.text.replace(/\n/g, '\n> '));
     } else if (m.kind === 'answer') {
       lines.push('', `## 回答（${t}）`, '', `**${m.ans || ''}**`, '');

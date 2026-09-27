@@ -62,6 +62,7 @@ Fungi 是「贴底就跟随，上滑就锁定」。本项目按需求改成：**
 | `chrome.commands` 与页面 keydown 双通道会截两次 | SW 记 `lastCaptureAt`，400ms 内去重 |
 | MV3 SW 空闲 30s 被回收，流式回合会断 | 抽屉端口每 5s 上报一次 `view`（同时延长 SW 生命周期）；残留 `answering` 状态在 `init()` 判为「已中断」亮红点 |
 | 流式期间每 1.2s 落盘会撞 storage 写频率配额 | `schedulePersist()` 节流 1.2s，回合结束强制落盘 |
+| 截图内嵌在会话对象里 → 每次落盘**重写全部历史图片**（实测 2~3× 写放大），且 `storage.onChanged` 把含图片的整份新值广播给每个标签页 | 图片单独成键 `spore.img.<sid>.<idx>`、**只写一次**，消息里只留 `imageKey`；发请求/渲染时才 `getImage()` 取回 data URL（抽屉按需填 `img.src`，加载前用 `:not([src])` 占位）；老会话由启动 sweep 幂等迁移 |
 | 抽屉会进自己的截图 | 抓帧**之前**先发 `spore:before-capture` 把抽屉藏起来，抓完再 `spore:after-capture` |
 | 异步起名后标题被改回「解析中…」 | 在途回合的 `sess` 还攥着旧 title，下一次 `saveSession` 把索引写回去 → `store.titleOverrides` 统一覆盖 |
 | LLM 流卡住不吐字会让整回合永远挂起 | `readWithIdle()` 空闲看门狗 60s，超时按可重试错误处理（每块 chunk 重置） |

@@ -334,6 +334,16 @@ def main():
                 check("核实块有说明（跑了核实，或说明为何跳过）", len(verify1) > 8, repr(verify1[:140]))
                 page.screenshot(path=str(SHOTS / "03-answer1.png"))
 
+                # 截图已拆键：消息体里只剩 imageKey，抽屉按需取回再填 src
+                shot_ok = page.evaluate(
+                    """() => {
+                        const sr = document.querySelector('spore-drawer').shadowRoot;
+                        const im = sr.querySelector('#stream .msg.user img.shot');
+                        return !!(im && im.getAttribute('src') && im.naturalWidth > 0);
+                    }"""
+                )
+                check("问题截图在抽屉里渲染（拆键后按需取回）", bool(shot_ok), repr(shot_ok))
+
                 title1 = s_text(page, "#title")
                 # 新起名契约：标题 = 题号 + 题目大意（阶段A 顺带吐 TITLE，零额外模型调用）
                 check(
@@ -734,6 +744,51 @@ def main():
                             f"err={sess.get('errorMsg')!r} title={sess.get('title')!r}",
                             flush=True,
                         )
+                    # 截图拆键契约：图片单独成键、只写一次，会话对象里只留引用
+                    # （改动理由：混在消息体里会被每次 saveSession 整份重写，实测 2~3× 写放大）
+                    img_keys = sw.evaluate(
+                        "async () => Object.keys(await chrome.storage.local.get(null))"
+                        ".filter(k => k.startsWith('spore.img.'))"
+                    )
+                    check("截图拆成独立存储键", len(img_keys) >= 1, str(img_keys))
+                    inlined = [
+                        e["id"]
+                        for e in idx or []
+                        if "data:image"
+                        in sw.evaluate(
+                            "async (id) => JSON.stringify(await chrome.storage.local.get('spore.sess.' + id))",
+                            e["id"],
+                        )
+                    ]
+                    check("会话对象里不再内嵌 base64 图片", not inlined, str(inlined))
+
+                    # 老会话迁移：注入一条旧格式（内嵌 data URL）→ 跑启动 sweep 的迁移 →
+                    # 必须拆键、按 key 取回同一张图；跑完把注入的会话与索引撤干净，别污染后续断言
+                    mig = sw.evaluate(
+                        """async () => {
+                            const K = 'spore.sess.19990101-000000';
+                            const fake = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
+                            const idx = ((await chrome.storage.local.get('spore.index'))['spore.index'] || []).slice();
+                            const sess = { id: '19990101-000000', title: '迁移自测', created: Date.now(),
+                                           updated: Date.now(), status: 'idle', unread: false,
+                                           messages: [{ role: 'user', ts: Date.now(), image: fake, text: 'legacy' }] };
+                            await chrome.storage.local.set({
+                                [K]: sess,
+                                'spore.index': [...idx, { id: sess.id, title: sess.title, created: sess.created,
+                                                          updated: sess.updated, count: 1, status: 'idle', unread: false }],
+                            });
+                            await globalThis.__spore.store.migrateImageKeys();
+                            const after = (await chrome.storage.local.get(K))[K];
+                            const m = after && after.messages[0];
+                            const key = (m && m.imageKey) || null;
+                            const back = key ? (await chrome.storage.local.get(key))[key] : null;
+                            await chrome.storage.local.remove([K, ...(key ? [key] : [])]);
+                            await chrome.storage.local.set({ 'spore.index': idx });
+                            return { inline: !!(m && m.image), key, ok: back === fake };
+                        }"""
+                    )
+                    check("老会话迁移：data URL 移出消息体", mig and not mig["inline"], str(mig))
+                    check("老会话迁移：按 key 能取回同一张图", mig and mig["ok"], str(mig))
                     print("---- spore.log ----", flush=True)
                     for line in (sw.evaluate("async () => (await chrome.storage.local.get('spore.log'))['spore.log']") or [])[-40:]:
                         print("   ", line, flush=True)

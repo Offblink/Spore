@@ -95,21 +95,23 @@ function sanitizeTitle(text) {
 
 // ------------------------------------------------------------------ 上下文
 
-function historyMessages(sess, settings) {
+async function historyMessages(sess, settings) {
   const msgs = [];
   // 只保留最近一张图：更早的截图换成占位文本，省 token 也够用
   let lastImageIdx = -1;
   sess.messages.forEach((m, i) => {
-    if (m.role === 'user' && m.image) lastImageIdx = i;
+    if (m.role === 'user' && store.hasImage(m)) lastImageIdx = i;
   });
+  // 图片已拆成独立键（只写一次），发请求这一刻才取回 data URL
+  const imgUrl = lastImageIdx >= 0 ? await store.resolveImage(sess.messages[lastImageIdx]) : null;
   for (const [i, m] of sess.messages.entries()) {
     if (m.role === 'user') {
-      const text = m.text || (m.image ? '（题目截图）' : '');
-      if (m.image && i === lastImageIdx) {
+      const text = m.text || (store.hasImage(m) ? '（题目截图）' : '');
+      if (imgUrl && i === lastImageIdx) {
         msgs.push({
           role: 'user',
           content: [
-            { type: 'image_url', image_url: { url: m.image } },
+            { type: 'image_url', image_url: { url: imgUrl } },
             { type: 'text', text },
           ],
         });
@@ -318,7 +320,7 @@ export async function runVerifyOnly({ sid, emit, signal, settings }) {
       api,
       bump,
       settings,
-      image: lastUser?.image || null,
+      image: await store.resolveImage(lastUser),
       extra,
       signal,
     });
@@ -348,7 +350,7 @@ export async function runTurn({ sid, emit, signal, settings }) {
   const bump = () => store.scheduleSave(sess);
 
   // ------------------------------------------------ 追问（纯文本，最快）
-  if (!last.image) {
+  if (!store.hasImage(last)) {
     sess.status = 'answering';
     await store.patchIndex(sid, { status: 'answering' });
     const msg = { role: 'assistant', kind: 'chat', text: '', think: '', ts: Date.now() };
@@ -358,7 +360,7 @@ export async function runTurn({ sid, emit, signal, settings }) {
     try {
       const res = await streamChat({
         ...api,
-        messages: [{ role: 'system', content: SYSTEM }, ...historyMessages(sess, settings)],
+        messages: [{ role: 'system', content: SYSTEM }, ...(await historyMessages(sess, settings))],
         onDelta: (kind, chunk, acc) => {
           // 正文与思考分开收：思考进「思考」块（会显示），绝不混进正文
           if (kind === 'reasoning') {
@@ -388,7 +390,7 @@ export async function runTurn({ sid, emit, signal, settings }) {
   await store.patchIndex(sid, { status: 'answering' });
   emit({ type: 'status', sid, status: 'answering', text: '读题中…' });
 
-  const image = last.image;
+  const image = await store.resolveImage(last); // 拆键后发请求这一刻才取回 data URL
   const extra = last.text ? `\n\n用户补充：${last.text}` : '';
   const answer = {
     role: 'assistant',

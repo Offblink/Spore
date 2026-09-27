@@ -64,6 +64,8 @@
 .msg.user{display:flex;flex-direction:column;gap:6px}
 .msg.user .shot{align-self:flex-start;max-width:86%;border-radius:12px;border:1px solid #e6e8f2;
   box-shadow:0 2px 10px rgba(20,24,48,.10);display:block}
+/* 图片按需取回（拆键）期间的占位：没 src 时别塌成 0 高，取到再展开 */
+.msg.user .shot:not([src]){min-width:180px;min-height:56px;background:#f7f8fc}
 .msg.user .utext{align-self:flex-start;font-size:14.5px;color:#4a4f6b;background:#f2f4fb;
   border-radius:10px 10px 10px 3px;padding:6px 10px;white-space:pre-wrap}
 .msg.bot{position:relative;padding-left:12px}
@@ -842,13 +844,25 @@
     node.dataset.mi = String(i);
     if (m.role === 'user') {
       node.className = 'msg user';
-      if (m.image) {
+      if (m.imageKey || m.image) {
+        // 图片已拆成独立键（只写一次），这里按需取回再填 src，取不到就丢占位
         const img = document.createElement('img');
         img.className = 'shot';
-        img.src = m.image;
         img.alt = '题目截图';
-        img.addEventListener('click', () => window.open(m.image, '_blank'));
         node.appendChild(img);
+        const fill = (url) => {
+          if (!url) {
+            img.remove();
+            return;
+          }
+          img.src = url;
+          img.addEventListener('click', () => window.open(url, '_blank'));
+        };
+        if (m.imageKey) {
+          chrome.storage.local.get(m.imageKey).then((g) => fill(g[m.imageKey]));
+        } else {
+          fill(m.image);
+        }
       }
       if (m.text) {
         const t = document.createElement('div');

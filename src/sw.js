@@ -286,7 +286,9 @@ async function captureFlow() {
   const sess = await store.createSession({ title: store.stampTitle() });
   store.logEvent(`capture: 新会话 ${sess.id} note=${JSON.stringify(rect.note || '')}`);
   const idx = 0;
-  sess.messages.push({ role: 'user', ts: Date.now(), image, text: rect.note || '' });
+  // 图片单独成键、只写一次：会话对象里只留 imageKey，saveSession 从此不碰图片
+  const imageKey = await store.putImage(sess.id, idx, image);
+  sess.messages.push({ role: 'user', ts: Date.now(), imageKey, text: rect.note || '' });
   sess.status = 'answering';
   await store.saveSession(sess);
   try {
@@ -557,6 +559,14 @@ async function init() {
     }
   } catch (e) {
     store.logEvent(`sweep标题失败: ${e && e.message}`);
+  }
+
+  // 老会话迁移：截图从消息体挪进独立键（幂等；只动老格式，新会话一开始就是新格式）
+  try {
+    const moved = await store.migrateImageKeys();
+    if (moved) store.logEvent(`sweep图片: ${moved} 张移出会话对象`);
+  } catch (e) {
+    store.logEvent(`sweep图片失败: ${e && e.message}`);
   }
 
   // 镜像目录授权失效（浏览器重启会重置 FSA 授权）→ 提醒一次，否则用户会莫名其妙看到下载气泡
