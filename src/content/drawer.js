@@ -37,9 +37,8 @@
 #root:not(.open) #toggle{left:-${KNOB}px;border-radius:${KNOB_H / 2}px 0 0 ${KNOB_H / 2}px;
   box-shadow:3px 0 12px rgba(236,72,153,.32)}
 #toggle:hover{background:#db2777}
-/* 设置「隐藏半圆小角」（默认关）：两态都不露角，改用 Alt+Z / Alt+S 唤出 */
-#root.hide-toggle #toggle{display:none}
-#root.hide-toggle #hd{padding-left:14px}
+/* 设置「隐藏半圆小角」（默认关）：只在收起态不露角（不遮网页），展开态把手照常；收起态用 Alt+Z / Alt+S 唤出 */
+#root.hide-toggle:not(.open) #toggle{display:none}
 
 #main{display:flex;flex-direction:column;flex:1;height:100%;min-width:0}
 #hd{display:flex;align-items:center;gap:9px;padding:13px 14px 11px 34px;border-bottom:1px solid #eef0f8;min-height:58px}

@@ -469,7 +469,7 @@ def main():
             page.wait_for_timeout(800)
             check("Alt+Z 再按弹出抽屉", s_cls(page, "#root") == "open", s_cls(page, "#root"))
 
-            # ---------------- 隐藏半圆小角（设置默认关） ----------------
+            # ---------------- 隐藏半圆小角：只藏**收起态**（初衷=别遮网页），默认关 ----------------
             default_hide = sw.evaluate(
                 """async () => {
                     const cur = (await chrome.storage.local.get('spore.settings'))['spore.settings'] || {};
@@ -484,10 +484,16 @@ def main():
                 }"""
             )
             page.wait_for_timeout(400)
-            hidden = page.evaluate(
+            shown_open = page.evaluate(
+                """() => getComputedStyle(document.querySelector('spore-drawer').shadowRoot.querySelector('#toggle')).display !== 'none'"""
+            )
+            check("开启后：展开态收起把手仍在（不禁用收回）", bool(shown_open), str(shown_open))
+            # 收起后小角必须消失——这才是开关的初衷：别遮网页
+            guard(page, "hide-toggle 下收起", lambda: (page.click("spore-drawer >> #toggle"), page.wait_for_timeout(400)))
+            hidden_closed = page.evaluate(
                 """() => getComputedStyle(document.querySelector('spore-drawer').shadowRoot.querySelector('#toggle')).display === 'none'"""
             )
-            check("开启后半圆小角隐藏", bool(hidden), str(hidden))
+            check("开启后：收起态半圆小角隐藏（不遮网页）", bool(hidden_closed), str(hidden_closed))
             sw.evaluate(
                 """async () => {
                     const cur = (await chrome.storage.local.get('spore.settings'))['spore.settings'] || {};
@@ -495,10 +501,13 @@ def main():
                 }"""
             )
             page.wait_for_timeout(400)
-            shown = page.evaluate(
+            shown_closed = page.evaluate(
                 """() => getComputedStyle(document.querySelector('spore-drawer').shadowRoot.querySelector('#toggle')).display !== 'none'"""
             )
-            check("关闭后半圆小角恢复", bool(shown), str(shown))
+            check("关闭后：收起态半圆小角恢复", bool(shown_closed), str(shown_closed))
+            # 恢复默认后要能点把手回展开态（后续用例都在展开态跑）
+            guard(page, "把手恢复后弹出", lambda: (page.click("spore-drawer >> #toggle"), page.wait_for_timeout(750)))
+            check("收起态把手可点击弹出抽屉", s_cls(page, "#root") == "open", s_cls(page, "#root"))
 
             # ---------------- 会话列表：点击气泡弹出（悬停不再触发） ----------------
             box = page.locator("spore-drawer >> #sessions").bounding_box()

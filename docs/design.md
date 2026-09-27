@@ -94,6 +94,7 @@ Fungi 是「贴底就跟随，上滑就锁定」。本项目按需求改成：**
 | 抽屉收起后系统通知与红点都不出现 | `visible()` 原来只看页面焦点，收起的抽屉也算「正在看」→ `settleTurn` 判 seen=true，把通知和红点一起吞掉 → `visible()` 必须含 `state.open`，且 `setOpen()` 立刻 `reportView()`（别等 5s 心跳） |
 | 框选层一滚动就退出 / 滚动穿透很卡 | 穿透方案 = 每次滚动停就 `captureVisibleTab` 重截回灌，实测卡 → **已回退**为「滚动即取消」原设计；只保留「框太小」判定（宽高**都**小于下限才拒，有其一过线就放行） |
 | 仓库里混进真实 API key | 曾把 DeepSeek key 写死在 `DEFAULT_SETTINGS` 里（推公开仓前扫描抓到）→ `apiKey` 恒为 `''`，密钥只存 `spore.settings`（设置页写）；e2e 从 `SPORE_E2E_KEY` 环境变量或 gitignore 的 `tests/_run/e2e_key` 注入，且断言在第一次 capture 之前写入 |
+| 隐藏半圆小角把收起把手也藏了 | 用户初衷只是「**收起时**别遮网页」→ 开关只作用于收起态（`#root.hide-toggle:not(.open)`），展开态的收起把手永远在（否则没法点收回，而且抽屉本身就遮网页了）；收起态靠 Alt+Z 唤出 |
 
 ## 七、增量实现与验证
 
