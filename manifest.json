@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "Spore 孢子 · 截图问答",
+  "version": "0.1.0",
+  "description": "Alt+S 框选截图 → 右侧抽屉里的 Agent 作答：先快答，再联网核实，答完弹通知。",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "scripting",
+    "activeTab",
+    "tabs",
+    "downloads",
+    "notifications"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "src/sw.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Spore：截图提问（Alt+S）"
+  },
+  "commands": {
+    "capture-region": {
+      "suggested_key": { "default": "Alt+S" },
+      "description": "框选截图并提问"
+    },
+    "toggle-drawer": {
+      "suggested_key": { "default": "Alt+Z" },
+      "description": "弹出/收起 Spore 抽屉"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/drawer.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
+}
