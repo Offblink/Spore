@@ -3,7 +3,7 @@
 // 流式增量走 port（高频），存储按 1.2s 节流落盘。
 import * as store from './lib/store.js';
 import { runTurn, runVerifyOnly, ensureNamed } from './lib/agent.js';
-import { searchPlan } from './lib/tools.js';
+import { searchPlan, setSearchProxy, toolWebSearch } from './lib/tools.js';
 
 const MAX_CROP_LONG = 1600;
 const JPEG_QUALITY = 0.82;
@@ -597,6 +597,13 @@ globalThis.__spore = {
   searchPlan: async () => {
     const s = await store.getSettings();
     return { proxy: String(s.proxy || ''), plan: searchPlan(s.proxy) };
+  },
+  // 排查用：真跑一次检索（按盘上的「代理」设置定腿序），结果与腿级日志一起进日志环。
+  // 手动验证「检索代理」是否生效：改设置 → 控制台 await __spore.webSearch('…') → 看日志的模式行。
+  webSearch: async (query) => {
+    const s = await store.getSettings();
+    setSearchProxy(s.proxy);
+    return toolWebSearch(String(query ?? ''), undefined);
   },
 };
 

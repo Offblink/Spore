@@ -304,6 +304,8 @@ export async function toolWebSearch(query, signal) {
         break; // 诱饵页不重试、不返回
       }
       empty += 1; // 空页/节流页是可重试的失败
+      // 逐腿留痕：日志里能看到「哪条腿真的跑了」，这是别人核对「检索代理」是否生效的直接证据
+      toolLog(`search leg ${name}: empty (attempt ${attempt}/${SEARCH_ATTEMPTS})`);
       if (attempt < SEARCH_ATTEMPTS) await new Promise((r) => setTimeout(r, SEARCH_RETRY_PAUSE));
     }
   }
