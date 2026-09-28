@@ -21,7 +21,8 @@
 | Edge | 154.0.4258.37，MV3 / `chrome.sidePanel` / SW 内 `OffscreenCanvas` 全支持 |
 | `deepseek-v4-flash-vision-exp` | 视觉作答 **首字 1.80s**；**function-calling 流式/非流式都支持**（0.74–1.14s，能并行发多个 tool_call） |
 | `mimo-v2.6-flash` | 带图首字 **26.9s**（思考耗时），纯文本 tool_call 1.5s → 不适合「先快」 |
-| 检索可达性 | `cn.bing.com` 200（HTML 10 条 `b_algo` + `format=rss` 10 条干净结果）；搜狗返回 5KB JS 壳；百度人机验证；DuckDuckGo/Brave/Startpage 全部超时；全局 `bing.com` 429 |
+| 检索可达性（2026-09-27 首测） | `cn.bing.com` 200（HTML 10 条 `b_algo` + `format=rss` 10 条干净结果）；搜狗返回 5KB JS 壳；百度人机验证；DuckDuckGo/Brave/Startpage 全部超时；全局 `bing.com` 429 |
+| 检索可达性（2026-09-28 复测，Clash rule 模式 + 系统代理） | **结论既看环境也看节流窗口**：① bing 走代理**能用但会节流**——本轮探针轰炸（约 20 次查询）之后，同一出口返回「没有结果」页（0 `b_algo` + `b_no`）和空 RSS；几分钟后自愈（同日 e2e 里「只走 bing」就拿到真结果，模型据此把答案改对）。**直连**同一查询 10 条 `b_algo`。② ddg 走代理时：脚本客户端能拿 33KB 真页/9 条锚点，而**浏览器 fetch（无头、有头都试）拿到 202 质询页**（14KB、0 条）——按客户端指纹拦，扩展侧改不了。③ brave 429。④ 国内引擎走 `GEOIP,CN,DIRECT` 直连：360 搜索 553–1075ms、7 条可解析命中（备选方案，本轮未采用）。 |
 | 自有扩展 | 不存在（`chrome-mv3-prod` 是第三方「大学搜题酱」，只作 UX 参照） |
 | Fungi 抽屉 | 桌面端是常驻 sidebar（`margin-left -.4s`），移动端 `m.css:134` 才是真抽屉（`translateX` + scrim）；**没有半圆小角、没有页内 toast、没有页内会话列表** —— 这三样要新写 |
 | Fungi 滚动 | `isNearBottom(el) < 60px`（`web/app.js:25`）+ 写入前测、写入后 pin（`585/682`），写入层再兜一次（`common.js:1217`） |
@@ -36,7 +37,7 @@
 | 面板载体 | **注入式抽屉（Shadow DOM）** | 半圆小角、💬 角标、页内 toast 只有注入式能做；原生 `chrome.sidePanel` 只能整体开关 |
 | 后端形态 | **纯扩展**（SW 直连 API） | 联网能力本来就是 HTML 抓取，JS 可等价移植；免去常驻后端/端口/生命周期 |
 | 模型 | **全程 `deepseek-v4-flash-vision-exp`** | 1.8s 首字 + 支持 function-calling，一家搞定视觉与工具 |
-| 检索 | **只做 HTML/RSS 抓取** | 零 key、零成本；你的网络也只有 cn.bing 可用 |
+| 检索 | **只做 HTML/RSS 抓取**（2026-09-28 起：引擎链 `ddg→bing→brave` + 三道闸，同步 Fungi §71） | 零 key、零成本；走哪套引擎由设置页「检索代理」字段声明（填了 ddg 打头，留空只走 bing）——扩展读不到系统代理，这是 Fungi 注册表判断的替身 |
 | 数据 | **本地存储 + 磁盘镜像** | `storage.local` 为主，`chrome.downloads` 镜像 markdown + 截图到 `Downloads/Spore/sessions/<日期>/` |
 
 ## 四、两阶段 Prompt 结构
@@ -113,3 +114,4 @@ Fungi 是「贴底就跟随，上滑就锁定」。本项目按需求改成：**
 | 设置页的确认框跑到**浏览器正中** | `#root`（整屏 absolute 层）带 `transform`，其后代上的 `position:fixed` 会以**整屏**为参照。要「侧边栏内居中」必须放进 `#panel`（`position:relative`，就是侧边栏本身）并用 `position:absolute; inset:0` —— 断言也要对着 `#panel` 量，对着 `#root` 量是同一件事，等于没测 |
 | 会话名停在占位 | 默认标题不再用占位串，直接用 `stampTitle()`（日期+时分）；题号/大意起名只是**升级**，即使全失败也不会露出占位 |
 | 系统通知静默失败 | `iconUrl` 必须绝对 URL（见上表）；`notifications.create` 的 Promise 失败也要手动 `.catch` 落日志 |
+| **检索全挂、门禁却全绿**（上轮 e2e 实测 6 次检索全 `ERROR: search failed (empty results)`，出答案照过） | 两层原因：① 断言只数工具 chip（chip 在 dispatch *之前* 推出），从没看检索结果；② 只有一条 bing 腿，而 bing 在该出口被节流成「没有结果」页。修法：同步 Fungi §71 的三腿 + 三道闸、加「检索代理」开关（填了 ddg 打头），离线用 `tests/search.test.mjs` 钉死三道闸，e2e 再断言返回只有三态（`1.` / `(no results` / `ERROR: Search failed`） |

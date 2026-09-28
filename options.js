@@ -1,5 +1,5 @@
 // 设置页：读/写 spore.settings，顺带探测模型可达性与当前快捷键。
-const FIELDS = ['endpoint', 'apiKey', 'model', 'maxToolRounds', 'historyLimit', 'mirrorRoot'];
+const FIELDS = ['endpoint', 'apiKey', 'model', 'maxToolRounds', 'historyLimit', 'mirrorRoot', 'proxy'];
 const CHECKS = ['mirror', 'mirrorDownloads', 'fastNoThink', 'autoVerify', 'hideToggle'];
 
 const $ = (id) => document.getElementById(id);
@@ -41,6 +41,7 @@ async function save() {
     apiKey: $('apiKey').value.trim(),
     model: $('model').value.trim(),
     maxToolRounds: Math.max(0, Math.min(10, Number($('maxToolRounds').value) || 0)),
+    proxy: $('proxy').value.trim(),
     historyLimit: Math.max(2, Math.min(50, Number($('historyLimit').value) || 10)),
     mirror: $('mirror').checked,
     mirrorDownloads: $('mirrorDownloads').checked,

@@ -213,6 +213,19 @@ def main():
     )
     time.sleep(1.2)
     try:
+        # 检索链的「三道闸」是确定性逻辑，但真网络造不出诱饵页/429/空页重试——
+        # 用假 fetch 在 tests/search.test.mjs 里钉死（改/加断言理由：同步 Fungi §71 后的新契约）
+        off = subprocess.run(
+            ["node", "--test", str(HERE / "search.test.mjs")],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(REPO),
+        )
+        off_tail = ((off.stdout or "") + (off.stderr or "")).strip().replace("\n", " ")
+        check("离线：检索引擎链三闸全过（node --test tests/search.test.mjs）", off.returncode == 0, off_tail[-180:])
+
         with sync_playwright() as p:
             # 无头跑，不在用户桌面上开窗口、不弹 --no-sandbox 横幅；
             # 新版 headless 支持扩展（Edge 154）。失败则回退有头。
@@ -421,6 +434,31 @@ def main():
                 tools2 = s_count(page, "#stream .tool")
                 check("阶段B 触发了检索", tools2 >= 1, f"tool chips={tools2}")
                 check("检索 chip 持久化（回合结束重渲染后还在）", tools2 >= 1, tools2)
+
+                # 检索返回口径（改/加断言理由：同步 Fungi §71 后返回只有三态；旧实现是
+                # `ERROR: search failed (empty results)` 小写口径，本次必须钉死新的）
+                slogs = sw.evaluate("async () => (await chrome.storage.local.get('spore.log'))['spore.log'] || []")
+                mode = [l for l in slogs if " search: " in l]
+                check(
+                    "检索日志有模式行（未配代理 → 只走 bing）",
+                    any("未配代理" in l and "bing" in l for l in mode),
+                    str(mode[-1:])[:200],
+                )
+                heads = [l.split("→ ", 1)[1] for l in slogs if 'web_search "' in l and "→ " in l]
+                bad = [
+                    h
+                    for h in heads
+                    if not (
+                        h.startswith("1. ")
+                        or h.startswith("(no results for ")
+                        or h.startswith("ERROR: Search failed ")
+                    )
+                ]
+                check(
+                    "web_search 返回三态口径（编号命中 / (no results / ERROR: Search failed）",
+                    bool(heads) and not bad,
+                    str(bad[:1] or heads[:1])[:220],
+                )
                 page.screenshot(path=str(SHOTS / "05-answer2.png"))
 
             # ---------------- 半圆小角的朝向 / 气泡可见性 / 字号 ----------------
@@ -618,13 +656,17 @@ def main():
                 ),
             )
             page.screenshot(path=str(SHOTS / "08-followup.png"))
-            page.wait_for_function(
-                """() => {
-                    const h = document.querySelector('spore-drawer');
-                    return h && h.shadowRoot && h.shadowRoot.querySelectorAll('#stream .msg').length >= 4;
-                }""",
-                timeout=90000,
-                polling=500,
+            guard(
+                page,
+                "追问消息落进抽屉",
+                lambda: page.wait_for_function(
+                    """() => {
+                        const h = document.querySelector('spore-drawer');
+                        return !!(h && h.shadowRoot && h.shadowRoot.querySelectorAll('#stream .msg').length >= 4);
+                    }""",
+                    timeout=90000,
+                    polling=500,
+                ),
             )
             check("追问产生新消息", s_count(page, "#stream .msg") >= 4, f"msgs={s_count(page, '#stream .msg')}")
 
@@ -680,14 +722,22 @@ def main():
             page.click("spore-drawer >> #toggle")  # 展开回来，后面还要点开列表
             page.wait_for_timeout(400)
             check("再点 ‹ 能展开回来", s_cls(page, "#root") == "open", s_cls(page, "#root"))
-            page.wait_for_function(
-                """() => {
-                    const h = document.querySelector('spore-drawer');
-                    const m = h && h.shadowRoot && [...h.shadowRoot.querySelectorAll('#stream .chat')].pop();
-                    return !!(m && m.textContent.trim().length > 3);
-                }""",
-                timeout=90000,
-                polling=500,
+            # 追问回合收尾 + 回答出文本（改/加断言理由：本流程原来几处 wait 是裸的，环境一抖动——模型
+            # 402、检索连续空导致回合拖长——就把整条门禁崩成 exit 2 且不留现场；口径不变，改成 repo 统一
+            # 的 guard + wait_idle 耐心值，失败时照常 check FAIL + 落盘截图）
+            guard(page, "追问回合收尾", lambda: wait_idle(page, 180000))
+            guard(
+                page,
+                "追问回答出文本",
+                lambda: page.wait_for_function(
+                    """() => {
+                        const h = document.querySelector('spore-drawer');
+                        const m = h && h.shadowRoot && [...h.shadowRoot.querySelectorAll('#stream .chat')].pop();
+                        return !!(m && m.textContent.trim().length > 3);
+                    }""",
+                    timeout=180000,
+                    polling=500,
+                ),
             )
             think_texts = page.evaluate(
                 """() => {
@@ -898,6 +948,26 @@ def main():
                     """async () => ((await chrome.storage.local.get('spore.settings'))['spore.settings'] || {}).autoVerify"""
                 )
                 check("改完自动保存（防抖后写回存储）", saved is True, repr(saved))
+
+                # 「检索代理」决定引擎链（改/加断言理由：设置→定序是新契约；Fungi 靠注册表代理做同一判断）
+                plan0 = sw.evaluate("async () => globalThis.__spore.searchPlan()")
+                check("未配代理 → 引擎链只走 bing", plan0.get("plan") == ["bing"], str(plan0))
+                opt.fill("#proxy", "127.0.0.1:7897")
+                opt.wait_for_timeout(1400)
+                saved_proxy = sw.evaluate(
+                    """async () => ((await chrome.storage.local.get('spore.settings'))['spore.settings'] || {}).proxy"""
+                )
+                check("「检索代理」经 UI 写回存储", saved_proxy == "127.0.0.1:7897", repr(saved_proxy))
+                plan1 = sw.evaluate("async () => globalThis.__spore.searchPlan()")
+                check(
+                    "配了代理 → 引擎链变 ddg→bing→brave",
+                    plan1.get("plan") == ["duckduckgo", "bing", "brave"],
+                    str(plan1),
+                )
+                opt.fill("#proxy", "")
+                opt.wait_for_timeout(1400)
+                plan2 = sw.evaluate("async () => globalThis.__spore.searchPlan()")
+                check("清空代理 → 回到只走 bing", plan2.get("plan") == ["bing"], str(plan2))
 
                 # 隐藏小角必须**经设置页 UI** 能写回存储（曾漏进 save() 的手写 patch，勾了不落盘）
                 opt.click('.idx a[data-sec="keys"]')

@@ -161,6 +161,13 @@
         <label for="maxToolRounds">核实阶段最多检索轮数（0 = 不核实）</label>
         <input id="maxToolRounds" type="number" min="0" max="10" />
 
+        <label for="proxy">检索代理（可选）</label>
+        <input id="proxy" type="text" spellcheck="false" placeholder="如 127.0.0.1:7897" />
+        <div class="hint">
+          浏览器本身已按系统代理上网（Spore 没法只给自己的检索换代理）。这里填的是「我的网络有可用代理」的声明：
+          填了 → 检索优先 DuckDuckGo，失败再 Bing、Brave；留空 → 只走 Bing。
+        </div>
+
         <div class="row">
           <input id="autoVerify" type="checkbox" style="width: auto" />
           <label for="autoVerify">自动核实（答完自动联网核实；关掉后回答里出现「核实一下」按钮，点它才核实）</label>

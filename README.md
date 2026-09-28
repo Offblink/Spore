@@ -55,7 +55,8 @@ python tests/e2e.py
 
 Playwright + 本机 Edge **无头**跑 34 项断言（截图链路、两阶段作答、`<<ok>>` 守卫、异步起名、
 半圆小角内外翻转、气泡显隐、滚动不跟随、CoT、追问、0 下载、FSA 写盘能力），全绿退出码 0，
-现场截图留在 `tests/_shots/`。
+现场截图留在 `tests/_shots/`。跑之前会先过一遍离线契约：`node --test tests/search.test.mjs`
+（检索引擎链的三道闸：ddg 解析/诱饵页拒绝/空页重试/逐腿 429 报错/bing 跳转还原）。
 
 ## 安装
 
@@ -77,7 +78,7 @@ src/
   sw.js                  截图、裁剪、会话调度、并发回合、通知与红点、磁盘镜像
   lib/
     llm.js               OpenAI 兼容 SSE 客户端（tool_calls 装配、瞬时错误重试、abort）
-    tools.js             web_search（Bing RSS 主 + HTML 回落）/ web（正文抓取）
+    tools.js             web_search（引擎链 ddg→bing→brave + 三道闸；bing 腿 RSS 主 + HTML 回落）/ web（正文抓取）
     store.js             会话存储（chrome.storage.local）+ Downloads 镜像
     agent.js             两阶段作答 + 异步起名 + 追问
   content/
@@ -105,7 +106,11 @@ src/
 
 ## 已知限制
 
-- 检索走 HTML/RSS 抓取（你的网络实测只有 `cn.bing.com` 可用，DuckDuckGo/Brave/搜狗均被墙或返回 JS 壳），
-  搜索改版会导致解析失效 —— 回落逻辑在 `src/lib/tools.js`，改 `parseRss`/`parseHtml` 即可。
+- **检索**：引擎链与三道闸同步自 Fungi spec §71（2026-09-28）——`duckduckgo → bing → brave`，
+  空页/节流页重试一次、结果必须含查询实词（诱饵页不返回）、失败逐腿报错
+  `ERROR: Search failed (duckduckgo timed out; bing HTTP 429)`；全空回 `(no results for '…')`。
+  走哪套引擎由设置页「**检索代理**」字段声明（填了 = 有代理 → ddg 打头；留空 = 只走 bing）：
+  扩展没法只给自己的检索换代理，浏览器本身就按系统代理路由，这个开关等价于 Fungi 读注册表的那道判断。
+  解析改版会导致解析失效 —— 腿的实现与解析都在 `src/lib/tools.js`（`searchDdg`/`parseRss`/`parseHtml`/`searchBrave`）。
 - 阶段B 判 `FIX` 时只覆盖结论与一句话解析，不会重排版面。
 - 磁盘镜像写的是下载目录，不是仓库目录（浏览器扩展无法直接写任意路径）。

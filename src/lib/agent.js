@@ -3,7 +3,7 @@
 //   阶段B 联网核实（web_search / web 工具循环，判 OK / FIX）
 //   起名在阶段A 结束后立刻异步发起，绝不阻塞答案生成。
 import { streamChat, AbortedError } from './llm.js';
-import { TOOLS, dispatch } from './tools.js';
+import { TOOLS, dispatch, setSearchProxy } from './tools.js';
 import * as store from './store.js';
 
 const SYSTEM = `你是「孢子」，一个看截图答题的助手。规则：
@@ -195,6 +195,9 @@ export function ensureNamed(sess, emit) {
 async function verifyPhase({ sess, answer, idx, sid, emit, api, bump, settings, image, extra, signal }) {
   const maxRounds = Math.max(0, settings.maxToolRounds || 0);
   if (maxRounds <= 0) return;
+  // 检索引擎链由设置页的「代理」字段决定（填了 ddg 打头；留空只走 bing）——
+  // 这就是 Fungi 用注册表代理定序那道闸在扩展里的替身。设置改了下一次核实即生效。
+  setSearchProxy(settings.proxy);
   emit({ type: 'status', sid, status: 'verifying', text: '核实中…' });
   const msgs = [
     { role: 'system', content: SYSTEM },

@@ -47,6 +47,9 @@ export const DEFAULT_SETTINGS = {
   historyLimit: 10, // 上下文保留多少条消息
   fastNoThink: true, // 初答「直接作答不写推理」（实测 reasoning_effort=none 可归零思考）
   autoVerify: true, // 答完自动联网核实；关掉后回答里出现「核实一下」按钮，点它才核实
+  // 检索代理（可选）：填了 = 浏览器走代理 → 引擎链 ddg→bing→brave；留空 = 只走 bing。
+  // 浏览器自己已按系统代理路由，扩展没法只给检索换代理，这个字段决定的是「信任哪套引擎」。
+  proxy: '',
   hideToggle: false, // 隐藏半圆小角（默认露出；隐藏后用 Alt+Z 唤出/收起抽屉）
   mirror: true, // 磁盘镜像开关
   mirrorRoot: 'Spore/sessions',

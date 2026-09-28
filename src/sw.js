@@ -3,6 +3,7 @@
 // 流式增量走 port（高频），存储按 1.2s 节流落盘。
 import * as store from './lib/store.js';
 import { runTurn, runVerifyOnly, ensureNamed } from './lib/agent.js';
+import { searchPlan } from './lib/tools.js';
 
 const MAX_CROP_LONG = 1600;
 const JPEG_QUALITY = 0.82;
@@ -592,6 +593,11 @@ globalThis.__spore = {
   session: (id) => store.getSession(id),
   ports: () => [...ports].map((p) => ({ tabId: p.__tabId ?? null })),
   running: () => [...running.keys()],
+  // e2e 用：读盘上的「代理」设置并算出引擎链（钉住 设置→定序 这条契约，不依赖真网络）
+  searchPlan: async () => {
+    const s = await store.getSettings();
+    return { proxy: String(s.proxy || ''), plan: searchPlan(s.proxy) };
+  },
 };
 
 chrome.runtime.onInstalled.addListener(() => {
