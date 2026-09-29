@@ -124,12 +124,14 @@
 #sessions .dot{position:absolute;top:-2px;right:-2px;width:9px;height:9px;border-radius:50%;background:#ff3b5c;
   box-shadow:0 0 6px #ff3b5c;display:none;border:2px solid #fff}
 #sessions.has-unread .dot{display:block}
-/* 收藏当前会话的 ⭐：顶栏本来就挤，它不像 .mini 那样藏起来，但只占 26px、无底色 */
+/* 收藏当前会话的 ★：颜色由我们自己给（⭐ 是系统 emoji，同一份 CSS 在不同机器上会渲染成
+   别的颜色 —— 实测有用户点了变黑），所以用字符 ★ + color：未收藏灰、收藏品牌粉 */
 #fav{flex:none;width:26px;height:30px;padding:0;border:0;background:transparent;cursor:pointer;
-  font-size:17px;line-height:1;filter:grayscale(1);opacity:.4;
-  transition:filter .15s,opacity .15s,transform .15s}
-#fav:hover{opacity:.8;transform:scale(1.12)}
-#fav.on{filter:none;opacity:1}
+  font-size:17px;line-height:1;color:#b3b8cd;
+  transition:color .15s,transform .15s}
+#fav:hover{color:#8d93ad;transform:scale(1.12)}
+#fav.on{color:#ec4899}
+#fav.on:hover{color:#db2777}
 /* 抽屉里才看得见抽屉里的东西：收起时不露气泡 */
 #root:not(.open) #sessions{display:none}
 #root:not(.open) #fav{display:none}
@@ -190,10 +192,11 @@
 .row.active,.row.active:hover{background:#fff0f7}
 .row.active::before{content:'';position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:99px;background:#ec4899}
 .row .f{flex:none;border:0;background:transparent;cursor:pointer;font-size:16px;line-height:1;padding:2px 0;
-  opacity:0;filter:grayscale(1);transition:opacity .15s,filter .15s,transform .15s}
-.row:hover .f{opacity:.55}
-.row.fav .f{opacity:1;filter:none}
+  color:#b3b8cd;opacity:0;transition:opacity .15s,color .15s,transform .15s}
+.row:hover .f{opacity:.6}
+.row.fav .f{opacity:1;color:#ec4899}
 .row .f:hover{opacity:1;transform:scale(1.18)}
+.row.fav .f:hover{color:#db2777}
 .row .col{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .row .t{min-width:0;font-size:14.5px;color:#2b2f4a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row .ts{font-size:11.5px;line-height:1.1;color:#a3a8c2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -251,12 +254,12 @@
       <div id="main">
         <div id="hd">
           <button id="sessions" title="会话列表">💬<span class="dot"></span></button>
-          <button id="fav" title="收藏此会话">⭐</button>
+          <button id="fav" title="收藏此会话">★</button>
           <div id="title"></div>
           <div id="status"></div>
           <button class="mini" id="retry" title="重试" style="visibility:hidden">↻</button>
           <button class="mini" id="stop" title="停止">■</button>
-          <button class="mini" id="gear" title="设置">⚙</button>
+          <button class="mini" id="gear" title="主页">⚙</button>
         </div>
         <div id="stream"></div>
         <button id="jump" title="回到最新">↓</button>
@@ -324,17 +327,9 @@
   };
 
   // ------------------------------------------------------------------ 工具
-  const esc = (s) =>
-    String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-  function md(text) {
-    let s = esc(text);
-    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    s = s.replace(/\$([^$\n]+)\$/g, '<span class="math">$1</span>');
-    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-    return s.replace(/\n/g, '<br>');
-  }
+  // 渲染纯函数来自 src/lib/md.js（经典脚本挂全局）：整页 review 与抽屉共用一份，
+  // 否则两个页面的 markdown 语义会各自漂移。manifest 里 md.js 排在 drawer.js 前面。
+  const { esc, md } = globalThis.SporeMD;
 
   const now = () => Date.now();
 
@@ -369,9 +364,11 @@
   let retryDelay = 400;
 
   function post(msg) {
+    if (!port) connect(); // 端口断了（SW 重启/扩展重载）时点按钮会静默丢消息：先补一次连
     try {
       port?.postMessage(msg);
     } catch {
+      port = null;
       connect();
   log('drawer booted');
     }
@@ -451,14 +448,15 @@
       renderTitle();
       return;
     }
-    openSession(state.index[0].id, { open: false });
+    openSession(state.index[0].id, { open: false, keepList: true });
   }
 
-  function openSession(sid, { open = false } = {}) {
+  // keepList：删除当前会话后自动切到最近一条时用 —— 列表要留着（用户要继续在列表里操作）
+  function openSession(sid, { open = false, keepList = false } = {}) {
     state.sid = sid;
     state.streaming = false;
     setStatus('');
-    listpop.classList.remove('on');
+    if (!keepList) listpop.classList.remove('on');
     renderFav();
     if (open) setOpen(true);
     syncSession().then(() => {
@@ -793,7 +791,13 @@
     }
   });
 
-  /** ⭐ 与当前会话绑定：收藏态只存索引的 fav 字段，未收藏就是灰星 */
+  /** 切收藏：抽屉自己给反馈（星色 + 提示），别让用户靠 SW 回执猜「到底收藏了没」 */
+  function setFav(sid, on) {
+    post({ type: 'favorite', sid, fav: on });
+    showToast({ sid, title: on ? '已收藏' : '已取消收藏', text: on ? '会话列表里会标出这颗星' : '已取消标记' });
+  }
+
+  /** ★ 与当前会话绑定：收藏态只存索引的 fav 字段，未收藏就是灰星 */
   function renderFav() {
     const e = state.index.find((x) => x.id === state.sid);
     const on = !!(e && e.fav);
@@ -827,10 +831,9 @@
       listpop.innerHTML = '<div class="listempty">还没有会话<br>按 <b>Alt+S</b> 框选截图提问</div>';
       return;
     }
-    // 收藏的会话置顶（组内仍按索引的最近顺序），再用未收藏的补满 60 条上限
-    const favs = state.index.filter((e) => e.fav);
-    const rest = state.index.filter((e) => !e.fav).slice(0, Math.max(0, 60 - favs.length));
-    for (const e of [...favs, ...rest].slice(0, 60)) {
+    // 收藏**只标记不置顶**：置顶会把最新会话埋掉（收藏攒多了就找不到刚问的那条），
+    // 想只看收藏去整页审查里筛
+    for (const e of state.index.slice(0, 60)) {
       const row = document.createElement('div');
       row.className =
         'row' + (e.fav ? ' fav' : '') + (e.id === state.sid ? ' active' : '') + (e.unread ? ' unread' : '');
@@ -839,10 +842,10 @@
       f.className = 'f';
       f.type = 'button';
       f.title = e.fav ? '取消收藏' : '收藏此会话';
-      f.textContent = '⭐';
+      f.textContent = '★';
       f.addEventListener('click', (ev) => {
         ev.stopPropagation(); // 点星标只切收藏，不许顺手打开会话
-        post({ type: 'favorite', sid: e.id, fav: !e.fav });
+        setFav(e.id, !e.fav);
       });
       const col = document.createElement('div');
       col.className = 'col';
@@ -890,13 +893,14 @@
         img.className = 'shot';
         img.alt = '题目截图';
         node.appendChild(img);
+        // 截图不可点：data URL 开新标签在现代浏览器里就是一张空白页（用户实测撞到），
+        // 按用户拍板直接禁用点击 —— 要放大看细节交给 Edge 自带的页面缩放
         const fill = (url) => {
           if (!url) {
             img.remove();
             return;
           }
           img.src = url;
-          img.addEventListener('click', () => window.open(url, '_blank'));
         };
         if (m.imageKey) {
           chrome.storage.local.get(m.imageKey).then((g) => fill(g[m.imageKey]));
@@ -1059,6 +1063,8 @@
     if (!listpop.classList.contains('on')) return;
     const path = (e.composedPath && e.composedPath()) || [];
     if (path.includes(listpop) || path.includes($('#sessions'))) return;
+    // 删除/重命名模态里的点击（确认/取消/遮罩）不算「点空白」：改完列表要留在原地接着操作
+    if (path.includes($('#confirm')) || path.includes($('#rename'))) return;
     listpop.classList.remove('on');
   });
 
@@ -1067,9 +1073,12 @@
   // 收藏当前会话：与 💬 同级的头部控件，开着列表点它也别把列表关掉（要看行重排）
   favBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (!state.sid) return;
+    if (!state.sid) {
+      showToast({ title: '还没有会话', text: '先按 Alt+S 截一道题，再回来收藏', failed: true });
+      return;
+    }
     const cur = state.index.find((x) => x.id === state.sid);
-    post({ type: 'favorite', sid: state.sid, fav: !(cur && cur.fav) });
+    setFav(state.sid, !(cur && cur.fav));
   });
   // content script 里没有 chrome.runtime.openOptionsPage（会抛 TypeError，表现为「点了没反应」）
   $('#gear').addEventListener('click', () => post({ type: 'open-options' }));

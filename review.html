@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Spore · 搜题记录</title>
+    <style>
+      :root {
+        --accent: #ec4899;
+        --accent2: #db2777;
+        --text: #1a1d2e;
+        --muted: #7c819c;
+        --border: #e6e8f2;
+        --bg: #f7f8fc;
+        --side: 280px;
+      }
+      * { box-sizing: border-box }
+      html, body { height: 100% }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.65 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+      }
+      #app-shell { display: flex; height: 100vh; overflow: hidden }
+
+      /* ---- 左：会话列表（可伸缩，收起时右侧主区自动变宽） ---- */
+      #sidebar {
+        width: var(--side); min-width: var(--side); height: 100vh;
+        background: #fff; border-right: 1px solid var(--border);
+        display: flex; flex-direction: column; overflow: hidden;
+        transition: margin-left 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      #sidebar.collapsed { margin-left: calc(-1 * var(--side)); box-shadow: none }
+      .sb-head { flex: none; padding: 14px 12px 10px; border-bottom: 1px solid var(--border) }
+      .seg { display: flex; gap: 4px; background: #f2f4fb; border-radius: 10px; padding: 3px }
+      .seg-b {
+        flex: 1; border: 0; background: transparent; border-radius: 8px; padding: 6px 0;
+        font: 600 13px inherit; color: #6b7191; cursor: pointer; transition: background 0.15s, color 0.15s;
+      }
+      .seg-b:hover { color: var(--text) }
+      .seg-b.on { background: #fff; color: var(--text); box-shadow: 0 1px 4px rgba(20, 24, 48, 0.1) }
+      #list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px }
+      .row {
+        position: relative; display: flex; align-items: center; gap: 10px;
+        padding: 9px 10px; border-radius: 12px; cursor: pointer; transition: background 0.12s;
+      }
+      .row:hover { background: #f5f7fd }
+      .row.active { background: #fff0f7 }
+      .row.active::before {
+        content: ''; position: absolute; left: 0; top: 7px; bottom: 7px;
+        width: 3px; border-radius: 99px; background: var(--accent);
+      }
+      .row .f {
+        flex: none; border: 0; background: transparent; cursor: pointer;
+        font-size: 15px; line-height: 1; padding: 2px 0;
+        color: #b3b8cd; opacity: 0;
+        transition: opacity 0.15s, color 0.15s, transform 0.15s;
+      }
+      .row:hover .f { opacity: 0.6 }
+      .row.fav .f { opacity: 1; color: var(--accent) }
+      .row .f:hover { opacity: 1; transform: scale(1.18) }
+      .row.fav .f:hover { color: var(--accent2) }
+      .row .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px }
+      .row .t {
+        min-width: 0; font-size: 14px; color: #2b2f4a;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .row.active .t { color: #c2185b; font-weight: 600 }
+      .row .ts { font-size: 11.5px; color: #a3a8c2 }
+      .row .d {
+        flex: none; width: 8px; height: 8px; border-radius: 50%;
+        background: var(--accent); box-shadow: 0 0 6px rgba(236, 72, 153, 0.6); display: none;
+      }
+      .row.unread .d { display: block }
+      .empty { padding: 44px 16px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.9 }
+
+      /* ---- 右：会话历史（宽度随左栏收放自动调整） ---- */
+      #main { flex: 1; min-width: 0; height: 100vh; display: flex; flex-direction: column }
+      .topbar {
+        flex: none; height: 54px; display: flex; align-items: center; gap: 10px;
+        padding: 0 16px; background: #fff; border-bottom: 1px solid var(--border);
+      }
+      #collapse {
+        border: 0; background: transparent; color: var(--muted);
+        font: 600 18px/1 'Segoe UI', system-ui, sans-serif; cursor: pointer;
+        width: 26px; padding: 4px 0; border-radius: 8px; text-align: center;
+      }
+      #collapse:hover { background: #f2f4fb; color: var(--text) }
+      #rTitle {
+        flex: 1; min-width: 0; font-size: 15px; font-weight: 600;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      #rFav {
+        flex: none; border: 0; background: transparent; color: #b3b8cd;
+        font-size: 17px; cursor: pointer; padding: 2px 6px;
+        transition: color 0.15s, transform 0.15s;
+      }
+      #rFav:hover { transform: scale(1.12); color: #8d93ad }
+      #rFav.on { color: var(--accent) }
+      #rFav.on:hover { color: var(--accent2) }
+      #history { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 0 46px }
+      .hist-wrap { max-width: 860px; margin: 0 auto; padding: 0 26px; display: flex; flex-direction: column; gap: 24px }
+
+      /* ---- 消息（与抽屉同款语义，只读版） ---- */
+      .msg { font-size: 15.5px; line-height: 1.66; word-break: break-word }
+      .msg.user { display: flex; flex-direction: column; gap: 6px }
+      .msg.user .shot {
+        align-self: flex-start; max-width: 60%; border-radius: 12px;
+        border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(20, 24, 48, 0.1); display: block;
+      }
+      .msg.user .shot:not([src]) { min-width: 180px; min-height: 56px; background: #f2f4fb }
+      .msg.user .utext {
+        align-self: flex-start; font-size: 14.5px; color: #4a4f6b; background: #f2f4fb;
+        border-radius: 10px 10px 10px 3px; padding: 7px 11px; white-space: pre-wrap;
+      }
+      .msg.bot { position: relative; padding-left: 14px }
+      .msg.bot::before {
+        content: ''; position: absolute; left: 0; top: 3px; bottom: 3px;
+        width: 3px; border-radius: 99px; background: var(--accent);
+      }
+      .label { font-size: 11.5px; letter-spacing: 0.14em; color: #9aa0bb; text-transform: uppercase; margin-bottom: 3px }
+      .ans { font-size: 17.5px; font-weight: 650; color: #14172a; white-space: pre-wrap }
+      .why { color: #4a4f6b; font-size: 15px; white-space: pre-wrap; margin-top: 3px }
+      .chat { color: #14172a; white-space: pre-wrap }
+      .tools { display: flex; flex-direction: column; gap: 4px; margin-top: 6px }
+      .tool {
+        font-size: 13px; color: #7b81a0; background: #f6f7fc; border-radius: 7px; padding: 3px 8px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .tool::before { content: '⌕ '; color: var(--accent) }
+      .verify { margin-top: 9px; border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; background: #fbfcff }
+      .vhead { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9aa0bb; letter-spacing: 0.08em }
+      .chip { border-radius: 999px; padding: 1px 8px; font-size: 11.5px; letter-spacing: 0.04em }
+      .chip.ok { background: #e7f8ef; color: #0f9d58 }
+      .chip.fix { background: #ffeced; color: #d02747 }
+      .chip.skip { background: #f1f2f8; color: #7b81a0 }
+      .vnote { font-size: 15px; color: #3d4260; white-space: pre-wrap; margin-top: 4px }
+      .think {
+        margin: 0 0 7px; border-left: 2px solid #e9eaf4; padding: 2px 0 3px 10px;
+        font-size: 13px; color: #7b81a0;
+      }
+      .think summary { cursor: pointer; font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase; color: #9aa0bb }
+      .think-b { white-space: pre-wrap; margin-top: 5px; max-height: 300px; overflow-y: auto }
+      .err {
+        margin-top: 8px; background: #fff1f2; border: 1px solid #f7d7dc; color: #c81e45;
+        border-radius: 9px; padding: 7px 10px; font-size: 13.5px;
+      }
+      .math { font-family: 'Cambria Math', 'Latin Modern Math', Georgia, serif; font-style: italic; color: #20244a }
+      .msg code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 14px; background: #f4f6fd; border: 1px solid #eef0f8; border-radius: 5px; padding: 0 4px }
+      .msg a { color: #c2185b; text-decoration: none; border-bottom: 1px solid #f7c8da }
+      .msg strong { font-weight: 650; color: #14172a }
+
+      /* ---- 行内操作（重命名 / 删除）：从抽屉复制过来的同一套交互 ---- */
+      .row .r, .row .x {
+        flex: none; border: 0; background: transparent; cursor: pointer; opacity: 0;
+        font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 7px; color: #7b81a0;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+      }
+      .row:hover .r, .row:hover .x { opacity: 1 }
+      .row .r:hover { background: #eef1fa; color: var(--accent) }
+      .row .x:hover { background: #fdecef; color: #d02747 }
+
+      /* ---- 底部输入（与抽屉同款语义，Enter 发送） ---- */
+      #composer {
+        flex: none; display: flex; align-items: flex-end; gap: 9px;
+        padding: 12px 16px 14px; background: #fff; border-top: 1px solid var(--border);
+      }
+      #input {
+        flex: 1; resize: none; border: 1px solid #e2e5f0; background: #f8f9fd; border-radius: 12px;
+        padding: 9px 11px; font: 14.5px/1.55 inherit; color: var(--text);
+        min-height: 44px; max-height: 156px; outline: none;
+        transition: border-color 0.15s, background 0.15s;
+      }
+      #input:focus { border-color: var(--accent); background: #fff }
+      #input::placeholder { color: #a8adc6 }
+      #input:disabled { background: #f1f3f8; color: #a3a8c2; cursor: default }
+      #send {
+        flex: none; width: 40px; height: 40px; border-radius: 12px; border: 0;
+        background: var(--accent); color: #fff; cursor: pointer; font-size: 16.5px; line-height: 1;
+        transition: background 0.15s, transform 0.12s;
+      }
+      #send:hover { background: var(--accent2); transform: translateY(-1px) }
+      #send:disabled { background: #e6e8f2; color: #a3a8c2; cursor: default; transform: none }
+
+      /* ---- 删除确认 / 重命名：整页居中模态（抽屉里那两个的复制品） ---- */
+      #confirm, #rename {
+        position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        background: rgba(16, 20, 40, 0.34); backdrop-filter: blur(2px); z-index: 40;
+      }
+      #confirm.on, #rename.on { display: flex }
+      #confirm .box, #rename .box {
+        width: 340px; background: #fff; border-radius: 16px; padding: 22px 20px 18px;
+        box-shadow: 0 26px 64px rgba(10, 12, 24, 0.34); text-align: center;
+        animation: pop 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .ct { font-size: 16px; font-weight: 650; margin-bottom: 9px }
+      .cb { font-size: 14px; line-height: 1.7; color: #5a5f78; margin-bottom: 18px; word-break: break-all }
+      .acts { display: flex; gap: 10px }
+      .acts button { flex: 1; padding: 11px 0; border: 0; border-radius: 11px; cursor: pointer; font: 600 14.5px/1 inherit }
+      .cno { background: #f1f3fb; color: #4a4f6b }
+      .cno:hover { background: #e8ebf7 }
+      .cyes { background: #ff3b5c; color: #fff }
+      .cyes:hover { background: #ef1f45 }
+      #renameInput {
+        width: 100%; box-sizing: border-box; margin: 2px 0 16px; padding: 10px 11px;
+        border: 1px solid var(--border); border-radius: 10px; background: #fafbfe; outline: none;
+        font: 13.5px/1.4 'Cascadia Code', Consolas, monospace; color: var(--text); text-align: center;
+      }
+      #renameInput:focus { border-color: var(--accent); background: #fff }
+
+      ::-webkit-scrollbar { width: 9px; height: 9px }
+      ::-webkit-scrollbar-thumb { background: #dfe2ee; border-radius: 99px }
+      ::-webkit-scrollbar-thumb:hover { background: var(--accent) }
+      ::-webkit-scrollbar-track { background: transparent }
+      @media (prefers-reduced-motion: reduce) {
+        #sidebar, .seg-b, .row, .row .f, #rFav { transition: none !important }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app-shell">
+      <aside id="sidebar">
+        <div class="sb-head">
+          <div class="seg">
+            <button class="seg-b on" data-filter="all" type="button">全部</button>
+            <button class="seg-b" data-filter="fav" type="button">收藏</button>
+          </div>
+        </div>
+        <div id="list"></div>
+      </aside>
+      <main id="main">
+        <header class="topbar">
+          <button id="collapse" type="button" title="收起/展开会话列表"></button>
+          <div id="rTitle"></div>
+          <button id="rFav" type="button" title="收藏此会话">★</button>
+        </header>
+        <div id="history"></div>
+        <div id="composer">
+          <textarea id="input" rows="1" placeholder="接着问…（Enter 发送，Shift+Enter 换行）"></textarea>
+          <button id="send" type="button" title="发送">↑</button>
+        </div>
+      </main>
+    </div>
+
+    <div id="confirm">
+      <div class="box">
+        <div class="ct">删除这个会话？</div>
+        <div class="cb" id="confirmName"></div>
+        <div class="acts">
+          <button class="cno" id="confirmNo" type="button">取消</button>
+          <button class="cyes" id="confirmYes" type="button">删除</button>
+        </div>
+      </div>
+    </div>
+    <div id="rename">
+      <div class="box">
+        <div class="ct">重命名会话</div>
+        <input id="renameInput" type="text" spellcheck="false" />
+        <div class="acts">
+          <button class="cno" id="renameNo" type="button">取消</button>
+          <button class="cyes" id="renameYes" type="button">保存</button>
+        </div>
+      </div>
+    </div>
+    <script src="src/lib/md.js"></script>
+    <script src="src/review.js"></script>
+  </body>
+</html>

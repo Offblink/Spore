@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <title>Spore 设置</title>
+    <title>Spore 主页</title>
     <style>
       :root {
         --accent: #ec4899;
@@ -134,13 +134,22 @@
       }
       .switch input:checked + .knob { background: var(--accent) }
       .switch input:checked + .knob::after { transform: translateX(20px) }
+
+      /* ---- 搜题记录是索引第一项，点了直通整页审查（不做右侧分页）---- */
+      .idx .gap { height: 20px }
+      .idx .grp { padding: 0 12px 7px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted) }
+      .idx a[data-jump] { color: #14162a; font-weight: 650 }
+      .idx a[data-jump]:hover { background: #ffeef7; color: var(--accent) }
     </style>
   </head>
   <body>
     <div class="shell">
       <nav class="idx">
         <div class="brand"><span>Spore</span> 孢子</div>
-        <p class="sub">设置分页：左边选，右边一次只显示一页。</p>
+        <p class="sub">搜题记录直通整页审查；下面四张卡是应用设置，左边选右边显示。</p>
+        <a href="review.html" data-jump="history">搜题记录</a>
+        <div class="gap"></div>
+        <div class="grp">应用设置</div>
         <a href="#model" data-sec="model" class="on">模型 <i class="dot"></i></a>
         <a href="#mirror" data-sec="mirror">磁盘镜像 <i class="dot"></i></a>
         <a href="#keys" data-sec="keys">快捷键 <i class="dot"></i></a>

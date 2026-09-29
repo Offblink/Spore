@@ -1,0 +1,632 @@
+// 整页「搜题记录」：左＝会话列表（全部/收藏、可收放、行内 ✎/×），右＝整段作答历史 + 底部追问输入。
+// 构造对齐 Fungi WebUI：侧栏固定宽、收起用 margin-left 滑出，主区 flex:1 ——
+// 列表一收一放，右侧会话界面的宽度自动跟着变。
+// 抽屉的删除 / 重命名 / 输入框按用户要求**复制**进来（抽屉原样保留）：协议复用 SW 的
+// favorite / view / rename / delete / ask 消息，并开一条与抽屉同名的 'spore' 端口拿流式事件。
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const { esc, md } = globalThis.SporeMD; // review.html 里 md.js 排在本文件前面
+  const K_INDEX = 'spore.index';
+  const K_SESS = 'spore.sess.';
+  const KEY_COLLAPSED = 'spore.review.collapsed';
+
+  const state = {
+    index: [],
+    sid: null,
+    sess: null,
+    filter: 'all',
+    streaming: false,
+    follow: true, // 跟随滚动：用户往上翻就断开，滚回底部才重新跟随（抽屉同款纪律）
+    pendingDelete: null,
+    pendingRename: null,
+  };
+  // 历史会反复重绘（回合内 1.2s 落盘一次），图片按 key 缓存，别每次都去 storage 捞几百 KB
+  const imgCache = new Map();
+  let port = null;
+  let retryDelay = 400;
+
+  const fmtStamp = (ms) => {
+    const d = new Date(ms || 0);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const post = (msg) => {
+    if (!port) connect(); // 端口断了（SW 重启/扩展重载）时点发送会静默丢消息：先补一次连
+    try {
+      port?.postMessage(msg);
+    } catch {
+      port = null;
+      connect();
+    }
+  };
+  const toBottom = () => {
+    const h = $('#history');
+    if (h) h.scrollTop = h.scrollHeight;
+  };
+  const maybeFollow = () => {
+    if (state.follow) toBottom();
+  };
+
+  // ---------------------------------------------------------------- 列表
+  async function syncIndex() {
+    const got = await chrome.storage.local.get(K_INDEX);
+    state.index = got[K_INDEX] || [];
+    renderList();
+  }
+
+  function renderList() {
+    const box = $('#list');
+    if (!box) return;
+    const keep = box.scrollTop;
+    box.innerHTML = '';
+    const rows = state.index.filter((e) => (state.filter === 'fav' ? e.fav : true));
+    if (!rows.length) {
+      box.innerHTML = `<div class="empty">${
+        state.filter === 'fav'
+          ? '没有收藏的会话。<br>点行内 ★ 收藏，这里只留收藏的。'
+          : '还没有搜题记录。<br>回网页按 Alt+S 截一道题。'
+      }</div>`;
+      renderTitle();
+      renderFav();
+      updateComposer();
+      return;
+    }
+    for (const e of rows) {
+      const row = document.createElement('div');
+      row.className =
+        'row' + (e.fav ? ' fav' : '') + (e.id === state.sid ? ' active' : '') + (e.unread ? ' unread' : '');
+      row.dataset.sid = e.id;
+      const f = document.createElement('button');
+      f.className = 'f';
+      f.type = 'button';
+      f.title = e.fav ? '取消收藏' : '收藏此会话';
+      f.textContent = '★';
+      f.addEventListener('click', (ev) => {
+        ev.stopPropagation(); // 点星标只切收藏，不许顺手打开会话
+        toggleFav(e.id, !e.fav);
+      });
+      const col = document.createElement('div');
+      col.className = 'col';
+      const t = document.createElement('div');
+      t.className = 't';
+      t.textContent = e.title || e.id;
+      const ts = document.createElement('div');
+      ts.className = 'ts';
+      ts.textContent = fmtStamp(e.updated || e.created);
+      col.append(t, ts);
+      const d = document.createElement('span');
+      d.className = 'd';
+      const rn = document.createElement('button');
+      rn.className = 'r';
+      rn.type = 'button';
+      rn.title = '重命名会话';
+      rn.textContent = '✎';
+      rn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        askRename(e.id, e.title || e.id);
+      });
+      const x = document.createElement('button');
+      x.className = 'x';
+      x.type = 'button';
+      x.title = '删除会话';
+      x.textContent = '×';
+      x.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        askDelete(e.id, e.title || e.id);
+      });
+      row.append(f, col, d, rn, x);
+      row.addEventListener('click', () => openSession(e.id));
+      box.appendChild(row);
+    }
+    box.scrollTop = keep;
+    renderTitle();
+    renderFav();
+    updateComposer();
+  }
+
+  function renderTitle() {
+    const hit = state.index.find((e) => e.id === state.sid);
+    $('#rTitle').textContent = hit?.title || state.sess?.title || '搜题记录';
+  }
+
+  function renderFav() {
+    const hit = state.index.find((x) => x.id === state.sid);
+    const on = !!(hit && hit.fav);
+    $('#rFav').classList.toggle('on', on);
+    $('#rFav').title = on ? '取消收藏' : '收藏此会话';
+  }
+
+  function toggleFav(sid, on) {
+    if (!sid) return;
+    post({ type: 'favorite', sid, fav: on });
+    const hit = state.index.find((x) => x.id === sid);
+    if (hit) hit.fav = on; // 乐观更新：SW 改完存储会再广播一次，这里不等回执
+    renderList();
+  }
+
+  // ---------------------------------------------------------------- 历史
+  function chipHtml(v) {
+    if (!v) return '';
+    if (v.pending) return '<span class="chip skip">⏳ 待核实</span>';
+    if (v.skipped) return '<span class="chip skip">⏭ 已跳过 · 初答自评确定</span>';
+    if (!v.ran) return '';
+    return v.verdict === 'FIX'
+      ? '<span class="chip fix">❌ 初答有误</span>'
+      : '<span class="chip ok">✅ 与初答一致</span>';
+  }
+
+  function thinkDetails(label, text) {
+    if (!text) return '';
+    return `<details class="think"><summary>${label}</summary><div class="think-b">${esc(text)}</div></details>`;
+  }
+
+  function verifyBox(v) {
+    if (!v || (!v.ran && !v.skipped && !v.pending)) return '';
+    const note = v.note ? `<div class="vnote">${md(v.note)}</div>` : '';
+    return `<div class="verify"><div class="vhead"><span>核实</span>${chipHtml(v)}</div>${note}${thinkDetails('核实思考', v.think || '')}</div>`;
+  }
+
+  function fillImg(img, key, legacy) {
+    const attach = (url) => {
+      img.src = url;
+      img.addEventListener('load', maybeFollow); // 图片撑高后仍要贴着底部
+    };
+    if (legacy) {
+      attach(legacy);
+      return;
+    }
+    if (imgCache.has(key)) {
+      attach(imgCache.get(key));
+      return;
+    }
+    chrome.storage.local.get(key).then((g) => {
+      const url = g[key];
+      if (!url) {
+        img.remove();
+        return;
+      }
+      imgCache.set(key, url);
+      if (img.isConnected) attach(url);
+    });
+  }
+
+  function msgNode(m, i) {
+    const node = document.createElement('div');
+    node.dataset.mi = String(i);
+    if (m.role === 'user') {
+      node.className = 'msg user';
+      if (m.imageKey || m.image) {
+        const img = document.createElement('img');
+        img.className = 'shot';
+        img.alt = '题目截图';
+        node.appendChild(img);
+        // 截图不可点：data URL 开新标签 = 空白页（与抽屉同一条决定），看细节用 Edge 自带缩放
+        fillImg(img, m.imageKey, m.image);
+      }
+      if (m.text) {
+        const t = document.createElement('div');
+        t.className = 'utext';
+        t.textContent = m.text;
+        node.appendChild(t);
+      }
+      return node;
+    }
+    node.className = 'msg bot';
+    if (m.kind === 'answer') {
+      const head = m.no ? `第${String(m.no).replace(/[^\dA-Za-z]/g, '')}题 ` : '';
+      node.innerHTML =
+        thinkDetails('思考', m.think || '') +
+        '<div class="label">初答</div><div class="ans"></div><div class="why"></div>' +
+        (m.tools?.length ? `<div class="tools">${m.tools.map((t) => `<div class="tool">${esc(t)}</div>`).join('')}</div>` : '') +
+        verifyBox(m.verify) +
+        (m.error ? `<div class="err">${esc(m.error)}</div>` : '');
+      node.querySelector('.ans').innerHTML = md(head + (m.ans || ''));
+      const why = node.querySelector('.why');
+      if (m.why) why.innerHTML = md(m.why);
+      else why.remove();
+      return node;
+    }
+    node.innerHTML = thinkDetails('思考', m.think || '') + '<div class="chat"></div>';
+    node.querySelector('.chat').innerHTML = md(m.text || '');
+    return node;
+  }
+
+  function renderHistory() {
+    const box = $('#history');
+    box.innerHTML = '';
+    if (!state.sid) {
+      box.innerHTML = '<div class="hist-wrap"><div class="empty">还没有搜题记录。<br>回网页按 Alt+S 截一道题。</div></div>';
+      return;
+    }
+    const msgs = state.sess?.messages || [];
+    if (!msgs.length) {
+      box.innerHTML = '<div class="hist-wrap"><div class="empty">这个会话还没有内容。</div></div>';
+      return;
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'hist-wrap';
+    msgs.forEach((m, i) => wrap.appendChild(msgNode(m, i)));
+    box.appendChild(wrap);
+  }
+
+  // ---- 流式期间的就地更新（端口事件驱动，不整份重绘，避免打断思考块与滚动） ----
+  const nodeAt = (i) => document.querySelector(`#history .msg[data-mi="${i}"]`);
+
+  function ensureThink(node) {
+    let d = node.querySelector('details.think');
+    if (!d) {
+      d = document.createElement('details');
+      d.className = 'think';
+      d.innerHTML = '<summary>思考</summary><div class="think-b"></div>';
+      node.insertBefore(d, node.firstChild);
+    }
+    return d.querySelector('.think-b');
+  }
+
+  // 回合忙不忙以**存储里的 status** 为准：端口事件可能丢（SW 重启/端口断开时正好在跑），
+  // 只靠 turn-end 收尾会把输入框永久卡在「回答生成中…」
+  const BUSY_STATUS = ['answering', 'verifying', 'searching'];
+  function syncBusy() {
+    const busy = BUSY_STATUS.includes(state.sess?.status);
+    if (busy === state.streaming) return false;
+    state.streaming = busy;
+    updateComposer();
+    return true;
+  }
+
+  async function reloadSession() {
+    if (!state.sid) return;
+    const got = await chrome.storage.local.get(K_SESS + state.sid);
+    state.sess = got[K_SESS + state.sid] || null;
+    syncBusy();
+    renderHistory();
+    maybeFollow();
+    updateComposer();
+  }
+
+  async function openSession(sid, { updateHash = true } = {}) {
+    state.sid = sid;
+    state.follow = true;
+    if (updateHash && location.hash !== '#' + sid) {
+      try {
+        history.replaceState(null, '', '#' + sid);
+      } catch {
+        /* ignore */
+      }
+    }
+    const got = await chrome.storage.local.get(K_SESS + sid);
+    state.sess = got[K_SESS + sid] || null;
+    syncBusy();
+    renderList();
+    renderHistory();
+    toBottom();
+    updateComposer();
+    // 看过了就清红点（只报「在看」，不报「没在看」——抽屉每 5s 也在报，别互相踩）
+    if (!document.hidden) post({ type: 'view', sid, visible: true });
+  }
+
+  // ---------------------------------------------------------------- 输入框（从抽屉复制）
+  const input = $('#input');
+
+  function autoGrow() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(156, input.scrollHeight) + 'px';
+  }
+
+  function updateComposer() {
+    const busy = !state.sid || state.streaming;
+    input.disabled = busy;
+    $('#send').disabled = busy;
+    input.placeholder = state.streaming
+      ? '回答生成中…'
+      : state.sid
+        ? '接着问…（Enter 发送，Shift+Enter 换行）'
+        : '先按 Alt+S 截一道题';
+  }
+
+  function send() {
+    const text = input.value.trim();
+    if (!text || !state.sid || state.streaming) return;
+    input.value = '';
+    autoGrow();
+    // 乐观落一条：SW 会写同一份存储，回合收尾整份重绘对齐（同一事实源，不会重复）
+    if (state.sess) state.sess.messages.push({ role: 'user', text, ts: Date.now() });
+    state.follow = true;
+    renderHistory();
+    maybeFollow();
+    post({ type: 'ask', sid: state.sid, text });
+  }
+
+  input.addEventListener('input', autoGrow);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  });
+  $('#send').addEventListener('click', send);
+
+  // ---------------------------------------------------------------- 删除 / 重命名（复制自抽屉）
+  function askDelete(sid, title) {
+    state.pendingDelete = sid;
+    $('#confirmName').textContent = title;
+    $('#confirm').classList.add('on');
+    $('#confirmYes').focus();
+  }
+  function closeConfirm() {
+    state.pendingDelete = null;
+    $('#confirm').classList.remove('on');
+  }
+  $('#confirmNo').addEventListener('click', closeConfirm);
+  $('#confirmYes').addEventListener('click', () => {
+    const sid = state.pendingDelete;
+    closeConfirm();
+    if (sid) post({ type: 'delete', sid });
+  });
+  $('#confirm').addEventListener('click', (e) => {
+    if (e.target === $('#confirm')) closeConfirm();
+  });
+
+  function askRename(sid, title) {
+    state.pendingRename = sid;
+    $('#renameInput').value = title || '';
+    $('#rename').classList.add('on');
+    $('#renameInput').focus();
+    $('#renameInput').select();
+  }
+  function closeRename() {
+    state.pendingRename = null;
+    $('#rename').classList.remove('on');
+  }
+  function commitRename() {
+    const sid = state.pendingRename;
+    const title = ($('#renameInput').value || '').trim();
+    closeRename();
+    if (sid && title) post({ type: 'rename', sid, title });
+  }
+  $('#renameNo').addEventListener('click', closeRename);
+  $('#renameYes').addEventListener('click', commitRename);
+  $('#rename').addEventListener('click', (e) => {
+    if (e.target === $('#rename')) closeRename();
+  });
+  $('#renameInput').addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitRename();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeRename();
+    }
+  });
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'Escape') return;
+      if (state.pendingDelete) closeConfirm();
+      else if (state.pendingRename) closeRename();
+    },
+    true,
+  );
+
+  // ---------------------------------------------------------------- 端口与流式事件
+  function onEvent(ev) {
+    if (!ev) return;
+    if (ev.type === 'title') {
+      if (ev.sid === state.sid) renderTitle();
+      syncIndex();
+      return;
+    }
+    if (ev.sid && ev.sid !== state.sid) return; // 别的会话在跑，这里只管列表（存储会广播）
+    switch (ev.type) {
+      case 'answer-start': {
+        state.streaming = true;
+        state.sess?.messages.push({
+          role: 'assistant',
+          kind: 'answer',
+          no: '',
+          ans: '',
+          why: '',
+          verify: { ran: false },
+          ts: Date.now(),
+        });
+        state.follow = true;
+        renderHistory();
+        maybeFollow();
+        updateComposer();
+        break;
+      }
+      case 'answer-delta': {
+        const node = nodeAt(ev.idx);
+        if (!node) break;
+        const head = ev.no ? `第${String(ev.no).replace(/[^\dA-Za-z]/g, '')}题 ` : '';
+        const ans = node.querySelector('.ans');
+        const why = node.querySelector('.why');
+        if (ans) ans.innerHTML = md(head + (ev.ans || ''));
+        if (why) why.innerHTML = md(ev.why || '');
+        maybeFollow();
+        break;
+      }
+      case 'tool': {
+        const node = nodeAt(ev.idx);
+        if (!node) break;
+        let box = node.querySelector('.tools');
+        if (!box) {
+          box = document.createElement('div');
+          box.className = 'tools';
+          node.insertBefore(box, node.querySelector('.verify') || null);
+        }
+        const row = document.createElement('div');
+        row.className = 'tool';
+        row.textContent = ev.name === 'web' ? `读取 ${ev.brief}` : `检索 ${ev.brief}`;
+        box.appendChild(row);
+        maybeFollow();
+        break;
+      }
+      case 'verify-delta': {
+        const node = nodeAt(ev.idx);
+        if (!node) break;
+        let v = node.querySelector('.verify');
+        if (!v) {
+          v = document.createElement('div');
+          v.className = 'verify';
+          v.innerHTML = '<div class="vhead"><span>核实</span></div><div class="vnote"></div>';
+          node.appendChild(v);
+        }
+        const note = v.querySelector('.vnote');
+        if (note) note.innerHTML = md(ev.note || '');
+        if (ev.done) v.querySelector('.vhead').innerHTML = `<span>核实</span>${chipHtml({ ran: !ev.skipped, skipped: !!ev.skipped, verdict: ev.verdict })}`;
+        maybeFollow();
+        break;
+      }
+      case 'think-delta': {
+        const node = nodeAt(ev.idx);
+        if (!node) break;
+        ensureThink(node).innerHTML = esc(ev.think || '');
+        maybeFollow();
+        break;
+      }
+      case 'chat-start': {
+        state.streaming = true;
+        state.sess?.messages.push({ role: 'assistant', kind: 'chat', text: '', ts: Date.now() });
+        state.follow = true;
+        renderHistory();
+        maybeFollow();
+        updateComposer();
+        break;
+      }
+      case 'chat-delta': {
+        const node = nodeAt(ev.idx);
+        const el = node?.querySelector('.chat');
+        if (el) el.innerHTML = md(ev.total || '');
+        maybeFollow();
+        break;
+      }
+      case 'turn-end':
+      case 'error':
+        state.streaming = false;
+        updateComposer();
+        reloadSession();
+        break;
+      default:
+        break;
+    }
+  }
+
+  function connect() {
+    try {
+      port = chrome.runtime.connect({ name: 'spore' });
+    } catch {
+      setTimeout(connect, retryDelay);
+      return;
+    }
+    retryDelay = 400;
+    port.onMessage.addListener((msg) => {
+      if (msg.type === 'ev') return onEvent(msg.ev);
+      if (msg.type === 'title-changed' || msg.type === 'session-created' || msg.type === 'session-deleted') {
+        return syncIndex();
+      }
+      if (msg.type === 'turn-end') return reloadSession(); // 别的会话结束也要把本页对齐存储
+      if (msg.type === 'toast') return; // 抽屉自己弹，页面不重复
+    });
+    port.onDisconnect.addListener(() => {
+      port = null;
+      retryDelay = Math.min(4000, retryDelay * 2);
+      setTimeout(connect, retryDelay);
+    });
+  }
+
+  // ---------------------------------------------------------------- 交互
+  document.querySelectorAll('.seg-b').forEach((b) =>
+    b.addEventListener('click', () => {
+      state.filter = b.dataset.filter;
+      document.querySelectorAll('.seg-b').forEach((x) => x.classList.toggle('on', x === b));
+      renderList();
+    }),
+  );
+
+  function setCollapsed(v) {
+    $('#sidebar').classList.toggle('collapsed', v);
+    // 箭头跟**动作方向**走：展开态点了它会往左收进去（<），收起态点了它会往右拉出来（>）
+    // —— 与抽屉半圆小角同一套口径（用户实测后指出方向反了）
+    $('#collapse').textContent = v ? '>' : '<';
+    try {
+      localStorage.setItem(KEY_COLLAPSED, v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
+  $('#collapse').addEventListener('click', () =>
+    setCollapsed(!$('#sidebar').classList.contains('collapsed')),
+  );
+  let startCollapsed = false;
+  try {
+    startCollapsed = localStorage.getItem(KEY_COLLAPSED) === '1';
+  } catch {
+    /* ignore */
+  }
+  setCollapsed(startCollapsed); // 顺带把箭头方向对齐（按钮初始是空的）
+
+  $('#rFav').addEventListener('click', () => {
+    const hit = state.index.find((x) => x.id === state.sid);
+    toggleFav(state.sid, !(hit && hit.fav));
+  });
+
+  // 用户往上翻就断开跟随（流式期间绝不把视图拽走），滚回底部再接上
+  $('#history').addEventListener('scroll', () => {
+    const h = $('#history');
+    state.follow = h.scrollHeight - h.scrollTop - h.clientHeight < 60;
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes[K_INDEX]) {
+      state.index = changes[K_INDEX].newValue || [];
+      // 当前会话被删了就顺位到第一条；全删光就进空态，别停在一行旧数据上
+      if (state.sid && !state.index.some((e) => e.id === state.sid)) {
+        if (state.index[0]) {
+          openSession(state.index[0].id);
+          return;
+        }
+        state.sid = null;
+        state.sess = null;
+        state.streaming = false;
+        renderList();
+        renderHistory();
+        updateComposer();
+        return;
+      }
+      renderList();
+    }
+    const key = K_SESS + state.sid;
+    if (changes[key]) {
+      state.sess = changes[key].newValue || null;
+      syncBusy(); // 状态以存储为准：SW 每次落盘都带 status，端口事件只是让它更快
+      // 流式期间 DOM 由端口事件就地更新：整份重绘会打断思考块与滚动（1.2s 落盘一次）
+      if (state.streaming) return;
+      renderHistory();
+      maybeFollow();
+    }
+  });
+
+  window.addEventListener('hashchange', () => {
+    const sid = decodeURIComponent(location.hash.slice(1));
+    if (sid && sid !== state.sid && state.index.some((e) => e.id === sid)) openSession(sid, { updateHash: false });
+  });
+
+  // ---------------------------------------------------------------- 启动
+  (async function boot() {
+    connect();
+    updateComposer();
+    const got = await chrome.storage.local.get(K_INDEX);
+    state.index = got[K_INDEX] || [];
+    renderList();
+    const want = decodeURIComponent(location.hash.slice(1));
+    const sid = state.index.some((e) => e.id === want) ? want : state.index[0]?.id;
+    if (sid) await openSession(sid, { updateHash: false });
+    else {
+      renderTitle();
+      renderHistory();
+    }
+  })();
+})();

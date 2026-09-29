@@ -249,10 +249,25 @@ function showSec(name) {
   }
 }
 
-document.querySelectorAll('.idx a').forEach((a) =>
+document.querySelectorAll('.idx a[data-sec]').forEach((a) =>
   a.addEventListener('click', (e) => {
     e.preventDefault();
     showSec(a.dataset.sec);
   }),
 );
 showSec((location.hash || '').slice(1));
+
+// ---------------- 搜题记录：索引第一项，点了**直接新开整页** ----------------
+// 用户定位：抽屉只是「插件的身份」，option 才是应用的控制中枢 —— 所以入口摆在索引最上面、
+// 与下面四张设置卡之间留出间距；但它不做右侧分页，点它就是跳去整页审查。
+function openReview(sid) {
+  const base = chrome.runtime.getURL('review.html');
+  chrome.tabs.create({ url: base + (sid ? `#${sid}` : '') }).catch((e) => msg(String(e), 'bad'));
+}
+
+document.querySelectorAll('.idx a[data-jump]').forEach((a) =>
+  a.addEventListener('click', (e) => {
+    e.preventDefault();
+    openReview('');
+  }),
+);

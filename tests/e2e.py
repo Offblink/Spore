@@ -5,8 +5,9 @@
     python tests/e2e.py
 
 覆盖：Alt+S 框选截图 → 抽屉弹出 → 阶段A 直接作答 → <<ok>> 守卫/联网核实 →
-异步起名 → 半圆小角收起弹出（内压/外凸）→ 会话气泡点击列表（悬停不触发）→ 顶栏 ⭐ 收藏与列表置顶 →
-滚动不跟随 → CoT 思考块 → 追问 → 0 下载（静默镜像）→ FSA 写盘能力。
+异步起名 → 半圆小角收起弹出（内压/外凸）→ 会话气泡点击列表（悬停不触发）→ 顶栏 ★ 收藏（品牌粉、
+只标记不置顶、有提示）→ 删除/重命名后列表保持 → 滚动不跟随 → CoT 思考块 → 追问 → 0 下载（静默镜像）
+→ FSA 写盘能力 → 设置页搜题记录首块 + 整页审查（筛选 / 列表收放 / hash 定位）。
 全部断言通过时退出码为 0；失败会把现场截图留在 tests/_shots/。
 """
 
@@ -361,6 +362,29 @@ def main():
                 )
                 check("问题截图在抽屉里渲染（拆键后按需取回）", bool(shot_ok), repr(shot_ok))
 
+                # 点截图不开新页：data URL 新标签就是空白页，已按用户拍板禁用点击（看细节用 Edge 自带缩放）
+                st0 = page.evaluate(
+                    """() => {
+                        const s = document.querySelector('spore-drawer').shadowRoot.querySelector('#stream');
+                        return s ? s.scrollTop : 0;
+                    }"""
+                )
+                pages_before = len(ctx.pages)
+                page.click("spore-drawer >> #stream .msg.user img.shot")
+                page.wait_for_timeout(600)
+                check(
+                    "点问题截图不开新页（已禁用点击）",
+                    len(ctx.pages) == pages_before,
+                    f"{pages_before} -> {len(ctx.pages)}",
+                )
+                page.evaluate(
+                    """(v) => {
+                        const s = document.querySelector('spore-drawer').shadowRoot.querySelector('#stream');
+                        if (s) s.scrollTop = v;
+                    }""",
+                    st0,
+                )
+
                 title1 = s_text(page, "#title")
                 # 新起名契约：标题 = 题号 + 题目大意（阶段A 顺带吐 TITLE，零额外模型调用）
                 check(
@@ -614,6 +638,29 @@ def main():
             page.click("spore-drawer >> #confirmNo")
             page.wait_for_timeout(300)
             check("点取消不删（仍有 2 行）", s_count(page, "#listpop .row") == 2, s_count(page, "#listpop .row"))
+            # 2026-09-29 用户要求：删除/重命名之后列表要留着，别一动就收
+            check("取消删除后会话列表仍开着", "on" in (s_cls(page, "#listpop") or ""), s_cls(page, "#listpop"))
+
+            # 重命名（改非当前会话）：同样不许收列表，且标题要立刻更新
+            guard(
+                page,
+                "open rename",
+                lambda: (
+                    page.hover("spore-drawer >> #listpop .row:nth-child(2) .r"),
+                    page.click("spore-drawer >> #listpop .row:nth-child(2) .r"),
+                ),
+            )
+            page.wait_for_timeout(300)
+            check("点 ✎ 弹重命名框", "on" in (s_cls(page, "#rename") or ""), s_cls(page, "#rename"))
+            page.fill("spore-drawer >> #renameInput", "改名后的会话")
+            page.click("spore-drawer >> #renameYes")
+            page.wait_for_timeout(500)
+            check(
+                "保存后行标题更新",
+                (s_text(page, "#listpop .row:nth-child(2) .t") or "") == "改名后的会话",
+                s_text(page, "#listpop .row:nth-child(2) .t"),
+            )
+            check("重命名后会话列表仍开着", "on" in (s_cls(page, "#listpop") or ""), s_cls(page, "#listpop"))
             # 点击式气泡完整契约：点空白收起 → 再点气泡开 → 再点气泡关
             # 注意：点抽屉**之外**的页面空白会把抽屉本体也收起（既有行为），
             # 这里点抽屉内、列表外的空白，只收列表
@@ -660,24 +707,65 @@ def main():
                     }"""
                 )
 
-            check("顶栏有 ⭐ 收藏按钮", s_count(page, "#fav") == 1, s_count(page, "#fav"))
+            def fav_color():
+                return page.evaluate(
+                    """() => {
+                        const sr = document.querySelector('spore-drawer').shadowRoot;
+                        return getComputedStyle(sr.querySelector('#fav')).color;
+                    }"""
+                )
+
+            def row_star_color(n):
+                return page.evaluate(
+                    """(n) => {
+                        const rows = document.querySelector('spore-drawer').shadowRoot.querySelectorAll('#listpop .row');
+                        const el = rows[n - 1] && rows[n - 1].querySelector('.f');
+                        return el ? getComputedStyle(el).color : null;
+                    }""",
+                    n,
+                )
+
+            def toast_title():
+                # 提示可叠多条（回答完毕那条可能还在），取最新那条
+                return page.evaluate(
+                    """() => {
+                        const sr = document.querySelector('spore-drawer').shadowRoot;
+                        const ts = sr.querySelectorAll('#toasts .toast .tt');
+                        return ts.length ? ts[ts.length - 1].textContent : null;
+                    }"""
+                )
+
+            # 星色必须自己给（⭐ emoji 的颜色由系统字体决定，实测有用户点了变黑）：
+            # 收藏态静息 #ec4899、hover 深一档 #db2777 —— 点完鼠标还停在按钮上，量到的是 hover 色
+            PINKS = ("rgb(236, 72, 153)", "rgb(219, 39, 119)")
+            check("顶栏有 ★ 收藏按钮", s_count(page, "#fav") == 1, s_count(page, "#fav"))
             sid_now = active_sid()
+            first_before = first_row_sid()
             page.click("spore-drawer >> #fav")
             page.wait_for_timeout(400)
-            check("点 ⭐ 收藏当前会话（写进索引）", fav_of(sid_now), f"sid={sid_now}")
-            check("⭐ 按钮进入收藏态", "on" in (s_cls(page, "#fav") or ""), s_cls(page, "#fav"))
+            check("点 ★ 收藏当前会话（写进索引）", fav_of(sid_now), f"sid={sid_now}")
+            check("★ 按钮进入收藏态", "on" in (s_cls(page, "#fav") or ""), s_cls(page, "#fav"))
+            check("收藏态星标是品牌粉", fav_color() in PINKS, fav_color())
+            check("收藏后有反馈提示", toast_title() == "已收藏", toast_title())
+            check(
+                "收藏只标记不置顶：列表顺序不变",
+                first_row_sid() == first_before,
+                f"{first_row_sid()} vs {first_before}",
+            )
             check(
                 "收藏中的会话在列表行亮星标",
                 "fav" in (s_cls(page, "#listpop .row.active") or ""),
                 s_cls(page, "#listpop .row.active"),
             )
-            # 再点一次取消收藏（后面要靠「只有一个收藏」来验证置顶）
+            # 再点一次取消收藏（后面靠「只有一个收藏」来验证筛选语义）
             page.click("spore-drawer >> #fav")
             page.wait_for_timeout(400)
-            check("再点 ⭐ 取消收藏", not fav_of(sid_now), f"sid={sid_now}")
-            check("⭐ 按钮退回未收藏态", "on" not in (s_cls(page, "#fav") or ""), s_cls(page, "#fav"))
+            check("再点 ★ 取消收藏", not fav_of(sid_now), f"sid={sid_now}")
+            check("★ 按钮退回未收藏态", "on" not in (s_cls(page, "#fav") or ""), s_cls(page, "#fav"))
+            check("未收藏态星标不是粉色", fav_color() not in PINKS, fav_color())
+            check("取消收藏也有提示", toast_title() == "已取消收藏", toast_title())
 
-            # 打开列表点另一行的星标：只切收藏，不许顺手打开会话；收藏后该行置顶
+            # 打开列表点另一行的星标：只切收藏，不许顺手打开会话（收藏不置顶，顺序不该动）
             guard(
                 page,
                 "open list for star",
@@ -694,7 +782,12 @@ def main():
             sid_after = active_sid()
             check("点行内星标不切换会话（stopPropagation）", sid_after == sid_now, f"{sid_after} vs {sid_now}")
             check("行内星标同样写进索引", fav_of(other), f"other={other}")
-            check("收藏的会话置顶到列表第一行", first_row_sid() == other, f"first={first_row_sid()} other={other}")
+            check("行内收藏星标也是品牌粉", row_star_color(2) in PINKS, row_star_color(2))
+            check(
+                "收藏不置顶：第二行留在原位",
+                first_row_sid() == first_before,
+                f"first={first_row_sid()} expected={first_before}",
+            )
 
             # 开着列表点 ⭐：列表要留着（正要看行重排），当前会话收藏/取消来回切
             page.click("spore-drawer >> #fav")
@@ -710,7 +803,11 @@ def main():
                 "fav" not in (s_cls(page, "#listpop .row.active") or ""),
                 s_cls(page, "#listpop .row.active"),
             )
-            check("另一个收藏仍在置顶", first_row_sid() == other, f"first={first_row_sid()} other={other}")
+            check(
+                "收藏标记仍在（顺序照旧、不置顶）",
+                fav_of(other) and first_row_sid() == first_before,
+                f"first={first_row_sid()} fav_other={fav_of(other)}",
+            )
             # 收尾把列表关掉，与既有用例进入追问时的状态对齐
             page.click("spore-drawer >> #sessions")
             page.wait_for_timeout(250)
@@ -1096,6 +1193,141 @@ def main():
                     shown and "（还没有日志）" not in shown and len(shown) > 20,
                     shown[:70],
                 )
+
+                # ---------------- 索引第一项「搜题记录」= 直通整页（不做右侧分页） ----------------
+                first_link = opt.evaluate("() => (document.querySelector('.idx a') || {}).textContent || ''")
+                check("索引第一项是搜题记录", first_link.strip().startswith("搜题记录"), first_link)
+                gap_h = opt.evaluate("() => (document.querySelector('.idx .gap') || {}).offsetHeight || 0")
+                grp = opt.evaluate("() => (document.querySelector('.idx .grp') || {}).textContent || ''")
+                check(
+                    "搜题记录与下面四张卡之间留了间距、且归在「应用设置」分组下",
+                    gap_h >= 10 and grp.strip() == "应用设置",
+                    f"gap={gap_h} grp={grp!r}",
+                )
+                no_right = opt.evaluate("() => document.querySelector('main .card:not([data-sec])') === null")
+                check("设置页右侧没有搜题记录分页（点了直接跳）", no_right, str(no_right))
+
+                cur_sid = page.evaluate(
+                    """() => {
+                        const r = document.querySelector('spore-drawer').shadowRoot.querySelector('#listpop .row.active');
+                        return r ? r.dataset.sid : null;
+                    }"""
+                )
+                with ctx.expect_page(timeout=8000) as rinfo:
+                    opt.click('.idx a[data-jump="history"]')
+                rev = rinfo.value
+                rev.wait_for_load_state("load", timeout=8000)
+                check("点「整页打开」进整页审查", "review.html" in (rev.url or ""), rev.url)
+                rerrs = []
+                rev.on("pageerror", lambda e: rerrs.append(str(e)))
+                rev.wait_for_timeout(700)
+                check("整页审查无 JS 报错", not rerrs, str(rerrs)[:160])
+
+                n_all = rev.evaluate("() => document.querySelectorAll('#list .row').length")
+                check("整页：左侧列出全部会话", n_all == 2, n_all)
+                rev_active = rev.evaluate(
+                    "() => (document.querySelector('#list .row.active') || {}).dataset?.sid || null"
+                )
+                check("整页：默认打开当前会话", rev_active == cur_sid, f"{rev_active} vs {cur_sid}")
+                hist = rev.evaluate("() => (document.querySelector('#history .ans') || {}).textContent || ''")
+                check("整页：右侧渲染出作答历史", len(hist) > 0, hist[:60])
+                # 整页里的截图同样禁用点击（同一条决定）
+                pages_rev = len(ctx.pages)
+                rev.click("#history .msg.user img.shot")
+                rev.wait_for_timeout(500)
+                check("整页里点截图也不开新页", len(ctx.pages) == pages_rev, f"{pages_rev} -> {len(ctx.pages)}")
+
+                rev.click('.seg-b[data-filter="fav"]')
+                rev.wait_for_timeout(250)
+                n_fav = rev.evaluate("() => document.querySelectorAll('#list .row').length")
+                check("整页：只看收藏（筛选生效）", n_fav == 1, n_fav)
+                rev.click('.seg-b[data-filter="all"]')
+                rev.wait_for_timeout(250)
+                n_all2 = rev.evaluate("() => document.querySelectorAll('#list .row').length")
+                check("整页：切回全部", n_all2 == 2, n_all2)
+
+                # 收放按钮：箭头跟动作方向（展开态点了往左收 = <，收起态点了往右拉 = >）
+                arrow0 = rev.evaluate("() => document.getElementById('collapse').textContent")
+                check("展开时收放按钮是 <", arrow0 == "<", repr(arrow0))
+                w1 = rev.evaluate("() => Math.round(document.querySelector('#main').getBoundingClientRect().width)")
+                rev.click("#collapse")
+                rev.wait_for_timeout(700)
+                w2 = rev.evaluate("() => Math.round(document.querySelector('#main').getBoundingClientRect().width)")
+                arrow1 = rev.evaluate("() => document.getElementById('collapse').textContent")
+                check("列表收起 → 会话界面自动变宽", w2 > w1 + 200, f"{w1} -> {w2}")
+                check("收起后收放按钮是 >", arrow1 == ">", repr(arrow1))
+                rev.click("#collapse")
+                rev.wait_for_timeout(700)
+
+                rev.click("#rFav")
+                rev.wait_for_timeout(400)
+                check("整页 ★ 收藏当前会话", fav_of(cur_sid) is True, f"sid={cur_sid}")
+                rev.click("#rFav")
+                rev.wait_for_timeout(400)
+                check("整页 ★ 再点取消收藏", fav_of(cur_sid) is False, f"sid={cur_sid}")
+
+                other_id = sw.evaluate(
+                    "async () => ((await chrome.storage.local.get('spore.index'))['spore.index'])[1].id"
+                )
+                # ---- 行内 ✎ 重命名（从抽屉复制进整页的交互） ----
+                rev.hover("#list .row:nth-child(2)")
+                rev.click("#list .row:nth-child(2) .r")
+                rev.wait_for_timeout(300)
+                check(
+                    "整页点 ✎ 弹重命名框",
+                    rev.evaluate("() => document.getElementById('rename').classList.contains('on')"),
+                    "rename modal",
+                )
+                rev.fill("#renameInput", "整页改名")
+                rev.click("#renameYes")
+                rev.wait_for_timeout(500)
+                t2 = rev.evaluate("() => (document.querySelector('#list .row:nth-child(2) .t') || {}).textContent || ''")
+                check("整页重命名生效（列表行同步）", t2 == "整页改名", t2)
+
+                # ---- 底部输入框也迁进整页：关掉自动核实省一次联网核实，发一句追问 ----
+                opt.click('.idx a[data-sec="model"]')
+                opt.wait_for_timeout(300)
+                opt.uncheck("#autoVerify")
+                opt.wait_for_timeout(1400)
+                rev.fill("#input", "整页追问：一句话说明你为什么这么答")
+                rev.keyboard.press("Enter")
+                rev.wait_for_timeout(1800)
+                utxt = rev.evaluate(
+                    "() => [...document.querySelectorAll('#history .utext')].map((e) => e.textContent).join('|')"
+                )
+                check("整页输入框发出的追问进了历史", "整页追问" in utxt, utxt[-80:])
+                guard(page, "等整页追问收尾", lambda: wait_idle(page, 180000))
+                bot_n = rev.evaluate("() => document.querySelectorAll('#history .msg.bot').length")
+                check("整页追问的回答渲染出来", bot_n >= 2, bot_n)
+                # 输入框要跟着回合状态恢复（状态以存储 status 为准，不信端口事件收没收全）
+                guard(
+                    rev,
+                    "等整页输入框恢复",
+                    lambda: rev.wait_for_function(
+                        "() => !document.getElementById('input').disabled", timeout=180000
+                    ),
+                )
+                check(
+                    "整页追问收尾后输入框恢复可用",
+                    rev.evaluate("() => !document.getElementById('input').disabled"),
+                    "composer enabled",
+                )
+                opt.check("#autoVerify")
+                opt.wait_for_timeout(1400)
+                saved_av = sw.evaluate(
+                    """async () => ((await chrome.storage.local.get('spore.settings'))['spore.settings'] || {}).autoVerify"""
+                )
+                check("用完把自动核实恢复为开", saved_av is True, repr(saved_av))
+
+                rev.goto(rev.url.split("#")[0] + f"#{other_id}")
+                rev.wait_for_timeout(600)
+                a2 = rev.evaluate(
+                    "() => (document.querySelector('#list .row.active') || {}).dataset?.sid || null"
+                )
+                check("整页：hash 定位到指定会话", a2 == other_id, f"{a2} vs {other_id}")
+                review_base = rev.url.split("#")[0]  # 收尾用例还要再开一次这一页
+                rev.screenshot(path=str(SHOTS / "11-review-page.png"))
+                rev.close()
                 opt.close()
                 page.wait_for_timeout(400)
             except Exception as e:  # noqa: BLE001
@@ -1110,6 +1342,14 @@ def main():
             # ---------------- 删除当前会话 → 自动加载最近的会话（收尾用例） ----------------
             del_title = s_text(page, "#title")
             rows_before = s_count(page, "#listpop .row")
+            # 先保证列表开着：新契约是「确认删除后列表留着」（用户要继续在列表里操作）
+            if "on" not in (s_cls(page, "#listpop") or ""):
+                guard(
+                    page,
+                    "open list for delete",
+                    lambda: (page.click("spore-drawer >> #sessions"), page.wait_for_timeout(250)),
+                )
+            check("删除前列表已打开", "on" in (s_cls(page, "#listpop") or ""), s_cls(page, "#listpop"))
             # .x 平时 opacity:0，直接派发点击最稳；按标题定位「当前会话」那一行
             clicked = page.evaluate(
                 """(t) => {
@@ -1129,6 +1369,7 @@ def main():
             page.wait_for_timeout(900)
             rows_after = s_count(page, "#listpop .row")
             check("删除后列表少一行", rows_after == rows_before - 1, f"{rows_before} -> {rows_after}")
+            check("确认删除后会话列表仍开着", "on" in (s_cls(page, "#listpop") or ""), s_cls(page, "#listpop"))
             new_title = s_text(page, "#title")
             check(
                 "删除当前会话后自动加载最近会话（标题已换且非空）",
@@ -1137,6 +1378,29 @@ def main():
             )
             check("自动加载的会话有内容", s_count(page, "#stream .msg") >= 1, s_count(page, "#stream .msg"))
             page.screenshot(path=str(SHOTS / "10-delete-reload.png"))
+
+            # ---------------- 整页审查里把最后一条也删掉（迁进去的删除走同一条协议） ----------------
+            rev2 = ctx.new_page()
+            rev2.goto(review_base)
+            rev2.wait_for_timeout(800)
+            last_title = rev2.evaluate("() => (document.querySelector('#list .row .t') || {}).textContent || ''")
+            rev2.hover("#list .row")
+            rev2.click("#list .row .x")
+            rev2.wait_for_timeout(300)
+            box_name = rev2.evaluate("() => (document.getElementById('confirmName') || {}).textContent || ''")
+            check(
+                "整页点 × 弹删除确认（框里是会话标题）",
+                rev2.evaluate("() => document.getElementById('confirm').classList.contains('on')")
+                and box_name == last_title,
+                f"{box_name!r} vs {last_title!r}",
+            )
+            rev2.click("#confirmYes")
+            rev2.wait_for_timeout(900)
+            left = sw.evaluate("async () => (await chrome.storage.local.get('spore.index'))['spore.index'] || []")
+            check("整页删除生效（索引清空）", len(left) == 0, len(left))
+            empty_txt = rev2.evaluate("() => (document.querySelector('#list .empty') || {}).textContent || ''")
+            check("整页列表进空态", "还没有搜题记录" in empty_txt, empty_txt[:40])
+            rev2.close()
 
             ctx.close()
     finally:
