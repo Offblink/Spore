@@ -5,8 +5,8 @@
     python tests/e2e.py
 
 覆盖：Alt+S 框选截图 → 抽屉弹出 → 阶段A 直接作答 → <<ok>> 守卫/联网核实 →
-异步起名 → 半圆小角收起弹出（内压/外凸）→ 会话气泡点击列表（悬停不触发）→ 滚动不跟随 →
-CoT 思考块 → 追问 → 0 下载（静默镜像）→ FSA 写盘能力。
+异步起名 → 半圆小角收起弹出（内压/外凸）→ 会话气泡点击列表（悬停不触发）→ 顶栏 ⭐ 收藏与列表置顶 →
+滚动不跟随 → CoT 思考块 → 追问 → 0 下载（静默镜像）→ FSA 写盘能力。
 全部断言通过时退出码为 0；失败会把现场截图留在 tests/_shots/。
 """
 
@@ -213,18 +213,22 @@ def main():
     )
     time.sleep(1.2)
     try:
-        # 检索链的「三道闸」是确定性逻辑，但真网络造不出诱饵页/429/空页重试——
-        # 用假 fetch 在 tests/search.test.mjs 里钉死（改/加断言理由：同步 Fungi §71 后的新契约）
-        off = subprocess.run(
-            ["node", "--test", str(HERE / "search.test.mjs")],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=str(REPO),
-        )
-        off_tail = ((off.stdout or "") + (off.stderr or "")).strip().replace("\n", " ")
-        check("离线：检索引擎链三闸全过（node --test tests/search.test.mjs）", off.returncode == 0, off_tail[-180:])
+        # 检索链的「三道闸」与初答自检（答案行 vs 解析结论）都是确定性逻辑，
+        # 真网络造不出诱饵页/429、真模型复现不出同一条矛盾 —— 分别钉在两个离线测试里
+        for t_name, t_check in (
+            ("search.test.mjs", "离线：检索引擎链三闸全过（node --test tests/search.test.mjs）"),
+            ("answer.test.mjs", "离线：初答自检与阶段B 解析契约全过（node --test tests/answer.test.mjs）"),
+        ):
+            off = subprocess.run(
+                ["node", "--test", str(HERE / t_name)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(REPO),
+            )
+            off_tail = ((off.stdout or "") + (off.stderr or "")).strip().replace("\n", " ")
+            check(t_check, off.returncode == 0, off_tail[-180:])
 
         with sync_playwright() as p:
             # 无头跑，不在用户桌面上开窗口、不弹 --no-sandbox 横幅；
@@ -581,11 +585,15 @@ def main():
             page.click("spore-drawer >> #listpop .row:first-child .x")
             page.wait_for_timeout(400)
             box = page.evaluate(
-                """() => {
+                """async () => {
                     const sr = document.querySelector('spore-drawer').shadowRoot;
                     const c = sr.querySelector('#confirm');
                     if (!c || !c.classList.contains('on')) return null;
-                    const r = c.querySelector('.box').getBoundingClientRect();
+                    const el = c.querySelector('.box');
+                    // pop 入场动画从 translateY(-8px) 起跳：不等它跑完就读 getBoundingClientRect，
+                    // 量到的是动画中间帧（实测 dy=8 恰好等于起跳位移），居中本身没问题
+                    await Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)).catch(() => {});
+                    const r = el.getBoundingClientRect();
                     // 确认框是**抽屉的子组件**：要相对抽屉（侧边栏）居中，不是相对整屏
                     const root = sr.querySelector('#root').getBoundingClientRect();
                     const p = { x: root.x + root.width / 2, y: root.y + root.height / 2 };
@@ -623,6 +631,91 @@ def main():
             unread = s_count(page, "#listpop .row.unread")
             print("unread rows:", unread, flush=True)
             page.screenshot(path=str(SHOTS / "07-sessionlist.png"))
+
+            # ---------------- 收藏：顶栏 ⭐ + 列表置顶 ----------------
+            def index_rows():
+                if not sw:
+                    return None
+                got = sw.evaluate("async () => (await chrome.storage.local.get('spore.index'))['spore.index']")
+                return got if isinstance(got, list) else None
+
+            def fav_of(sid):
+                hit = [r for r in (index_rows() or []) if r.get("id") == sid]
+                return bool(hit and hit[0].get("fav"))
+
+            def first_row_sid():
+                return page.evaluate(
+                    """() => {
+                        const r = document.querySelector('spore-drawer').shadowRoot.querySelector('#listpop .row');
+                        return r ? r.dataset.sid : null;
+                    }"""
+                )
+
+            # 当前会话只能从 DOM 拿：content script 在隔离世界，window.__sporeDrawer 对 page.evaluate 不可见
+            def active_sid():
+                return page.evaluate(
+                    """() => {
+                        const r = document.querySelector('spore-drawer').shadowRoot.querySelector('#listpop .row.active');
+                        return r ? r.dataset.sid : null;
+                    }"""
+                )
+
+            check("顶栏有 ⭐ 收藏按钮", s_count(page, "#fav") == 1, s_count(page, "#fav"))
+            sid_now = active_sid()
+            page.click("spore-drawer >> #fav")
+            page.wait_for_timeout(400)
+            check("点 ⭐ 收藏当前会话（写进索引）", fav_of(sid_now), f"sid={sid_now}")
+            check("⭐ 按钮进入收藏态", "on" in (s_cls(page, "#fav") or ""), s_cls(page, "#fav"))
+            check(
+                "收藏中的会话在列表行亮星标",
+                "fav" in (s_cls(page, "#listpop .row.active") or ""),
+                s_cls(page, "#listpop .row.active"),
+            )
+            # 再点一次取消收藏（后面要靠「只有一个收藏」来验证置顶）
+            page.click("spore-drawer >> #fav")
+            page.wait_for_timeout(400)
+            check("再点 ⭐ 取消收藏", not fav_of(sid_now), f"sid={sid_now}")
+            check("⭐ 按钮退回未收藏态", "on" not in (s_cls(page, "#fav") or ""), s_cls(page, "#fav"))
+
+            # 打开列表点另一行的星标：只切收藏，不许顺手打开会话；收藏后该行置顶
+            guard(
+                page,
+                "open list for star",
+                lambda: (page.click("spore-drawer >> #sessions"), page.wait_for_timeout(300)),
+            )
+            other = page.evaluate(
+                """() => {
+                    const rows = [...document.querySelector('spore-drawer').shadowRoot.querySelectorAll('#listpop .row')];
+                    return rows[1] ? rows[1].dataset.sid : null;
+                }"""
+            )
+            page.click("spore-drawer >> #listpop .row:nth-child(2) .f")
+            page.wait_for_timeout(400)
+            sid_after = active_sid()
+            check("点行内星标不切换会话（stopPropagation）", sid_after == sid_now, f"{sid_after} vs {sid_now}")
+            check("行内星标同样写进索引", fav_of(other), f"other={other}")
+            check("收藏的会话置顶到列表第一行", first_row_sid() == other, f"first={first_row_sid()} other={other}")
+
+            # 开着列表点 ⭐：列表要留着（正要看行重排），当前会话收藏/取消来回切
+            page.click("spore-drawer >> #fav")
+            page.wait_for_timeout(400)
+            check("开着列表点 ⭐ 不收起列表", "on" in (s_cls(page, "#listpop") or ""), s_cls(page, "#listpop"))
+            check("开着列表也能收藏当前会话", fav_of(sid_now), f"sid={sid_now}")
+            page.screenshot(path=str(SHOTS / "07c-favorite-list.png"))  # 列表开着 + 收藏态的现场取证
+            page.click("spore-drawer >> #fav")
+            page.wait_for_timeout(400)
+            check("开着列表点 ⭐ 依旧不收起列表", "on" in (s_cls(page, "#listpop") or ""), s_cls(page, "#listpop"))
+            check(
+                "取消收藏后该行不再亮星标",
+                "fav" not in (s_cls(page, "#listpop .row.active") or ""),
+                s_cls(page, "#listpop .row.active"),
+            )
+            check("另一个收藏仍在置顶", first_row_sid() == other, f"first={first_row_sid()} other={other}")
+            # 收尾把列表关掉，与既有用例进入追问时的状态对齐
+            page.click("spore-drawer >> #sessions")
+            page.wait_for_timeout(250)
+            check("收藏用例收尾：列表已收起", "on" not in (s_cls(page, "#listpop") or ""), s_cls(page, "#listpop"))
+            page.screenshot(path=str(SHOTS / "07b-favorite.png"))
 
             # ---------------- 会话内追问 ----------------
             # 残留清理与通知基线必须在**提交之前**做：回合可能在我们操作前就结束，

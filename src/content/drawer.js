@@ -124,8 +124,15 @@
 #sessions .dot{position:absolute;top:-2px;right:-2px;width:9px;height:9px;border-radius:50%;background:#ff3b5c;
   box-shadow:0 0 6px #ff3b5c;display:none;border:2px solid #fff}
 #sessions.has-unread .dot{display:block}
+/* 收藏当前会话的 ⭐：顶栏本来就挤，它不像 .mini 那样藏起来，但只占 26px、无底色 */
+#fav{flex:none;width:26px;height:30px;padding:0;border:0;background:transparent;cursor:pointer;
+  font-size:17px;line-height:1;filter:grayscale(1);opacity:.4;
+  transition:filter .15s,opacity .15s,transform .15s}
+#fav:hover{opacity:.8;transform:scale(1.12)}
+#fav.on{filter:none;opacity:1}
 /* 抽屉里才看得见抽屉里的东西：收起时不露气泡 */
 #root:not(.open) #sessions{display:none}
+#root:not(.open) #fav{display:none}
 #root:not(.open) #listpop{display:none!important}
 
 #jump{position:absolute;right:18px;bottom:82px;width:40px;height:40px;border-radius:50%;border:1px solid #e6e8f2;
@@ -168,32 +175,39 @@
 #confirm .cyes,#rename .cyes{background:#ff3b5c;color:#fff}
 #confirm .cyes:hover,#rename .cyes:hover{background:#ef1f45;transform:translateY(-1px)}
 
-/* 会话列表 */
-#listpop{position:absolute;left:14px;top:64px;width:292px;max-height:64vh;overflow-y:auto;
-  background:#fff;border:1px solid #e6e8f2;border-radius:14px;box-shadow:0 18px 44px rgba(16,20,40,.20);
-  padding:6px;display:none;z-index:2}
+/* 会话列表：贴着面板左缘铺到近满宽（420 - 12×2），行内 = 左星标 / 中标题+时间 / 右悬停操作 */
+#listpop{position:absolute;left:12px;top:66px;width:396px;max-height:64vh;overflow-y:auto;
+  background:#fff;border:1px solid #e6e8f2;border-radius:16px;box-shadow:0 18px 44px rgba(16,20,40,.20);
+  padding:8px;display:none;z-index:2}
 #listpop.on{display:block;animation:pop .26s cubic-bezier(.16,1,.3,1)}
 @keyframes pop{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
-.row{position:relative;display:flex;align-items:center;gap:8px;padding:10px 10px;border-radius:10px;cursor:pointer;
-  transition:background .12s}
+.row{position:relative;display:flex;align-items:center;gap:10px;padding:9px 8px 9px 10px;border-radius:12px;
+  cursor:pointer;transition:background .12s}
 .row:hover{background:#f5f7fd}
-.row.active{background:#fff0f7}
+/* 收藏行：淡金底 + 常显金色星标；active 粉底写在后面，两者同时命中时粉色优先 */
+.row.fav{background:#fff9ea}
+.row.fav:hover{background:#fff3d8}
+.row.active,.row.active:hover{background:#fff0f7}
 .row.active::before{content:'';position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:99px;background:#ec4899}
-.row .col{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
-.row .t{min-width:0;font-size:14px;color:#2b2f4a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .ts{font-size:11px;line-height:1.1;color:#a3a8c2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .f{flex:none;border:0;background:transparent;cursor:pointer;font-size:16px;line-height:1;padding:2px 0;
+  opacity:0;filter:grayscale(1);transition:opacity .15s,filter .15s,transform .15s}
+.row:hover .f{opacity:.55}
+.row.fav .f{opacity:1;filter:none}
+.row .f:hover{opacity:1;transform:scale(1.18)}
+.row .col{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.row .t{min-width:0;font-size:14.5px;color:#2b2f4a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .ts{font-size:11.5px;line-height:1.1;color:#a3a8c2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row.active .t{color:#c2185b;font-weight:600}
 .row .d{width:8px;height:8px;border-radius:50%;background:#ec4899;box-shadow:0 0 6px rgba(236,72,153,.6);flex:none;display:none}
 .row.unread .d{display:block}
-.row .r{border:0;background:transparent;color:#c3c7db;cursor:pointer;font-size:13.5px;opacity:0;
-  padding:2px 4px;border-radius:6px;flex:none}
-.row:hover .r{opacity:1}
+.row .r,.row .x{border:0;background:transparent;cursor:pointer;opacity:0;flex:none;border-radius:7px;
+  padding:3px 5px;transition:opacity .15s,background .15s,color .15s}
+.row .r{color:#c3c7db;font-size:13.5px}
+.row .x{color:#c3c7db;font-size:15px}
+.row:hover .r,.row:hover .x{opacity:1}
 .row .r:hover{background:#eef1ff;color:#4a5bd8}
-.row .x{border:0;background:transparent;color:#c3c7db;cursor:pointer;font-size:15px;opacity:0;
-  padding:2px 4px;border-radius:6px;flex:none}
-.row:hover .x{opacity:1}
 .row .x:hover{background:#ffeef2;color:#ff3b5c}
-.listempty{padding:16px 12px;font-size:13.5px;color:#a3a8c2;text-align:center}
+.listempty{padding:18px 12px;font-size:13.5px;color:#a3a8c2;text-align:center}
 
 /* toast */
 /* 通知锚在**屏幕右下角**（不是侧边栏左边），从屏幕外向左飞入 */
@@ -237,6 +251,7 @@
       <div id="main">
         <div id="hd">
           <button id="sessions" title="会话列表">💬<span class="dot"></span></button>
+          <button id="fav" title="收藏此会话">⭐</button>
           <div id="title"></div>
           <div id="status"></div>
           <button class="mini" id="retry" title="重试" style="visibility:hidden">↻</button>
@@ -291,6 +306,7 @@
   const listpop = $('#listpop');
   const input = $('#input');
   const jump = $('#jump');
+  const favBtn = $('#fav');
   const stopBtn = $('#stop');
   const retryBtn = $('#retry');
   const hostRef = host;
@@ -404,6 +420,7 @@
     renderList();
     renderTitle();
     renderUnread();
+    renderFav();
     if (state.sid) await syncSession();
   }
 
@@ -442,6 +459,7 @@
     state.streaming = false;
     setStatus('');
     listpop.classList.remove('on');
+    renderFav();
     if (open) setOpen(true);
     syncSession().then(() => {
       scrollToBottom();
@@ -468,6 +486,7 @@
       renderList();
       renderTitle();
       renderUnread();
+      renderFav();
     }
     const key = 'spore.sess.' + state.sid;
     if (changes[key]) {
@@ -774,6 +793,14 @@
     }
   });
 
+  /** ⭐ 与当前会话绑定：收藏态只存索引的 fav 字段，未收藏就是灰星 */
+  function renderFav() {
+    const e = state.index.find((x) => x.id === state.sid);
+    const on = !!(e && e.fav);
+    favBtn.classList.toggle('on', on);
+    favBtn.title = on ? '取消收藏' : '收藏此会话';
+  }
+
   function renderUnread() {
     const n = state.index.filter((e) => e.unread).length;
     $('#sessions').classList.toggle('has-unread', n > 0);
@@ -800,10 +827,23 @@
       listpop.innerHTML = '<div class="listempty">还没有会话<br>按 <b>Alt+S</b> 框选截图提问</div>';
       return;
     }
-    for (const e of state.index.slice(0, 60)) {
+    // 收藏的会话置顶（组内仍按索引的最近顺序），再用未收藏的补满 60 条上限
+    const favs = state.index.filter((e) => e.fav);
+    const rest = state.index.filter((e) => !e.fav).slice(0, Math.max(0, 60 - favs.length));
+    for (const e of [...favs, ...rest].slice(0, 60)) {
       const row = document.createElement('div');
-      row.className = 'row' + (e.id === state.sid ? ' active' : '') + (e.unread ? ' unread' : '');
+      row.className =
+        'row' + (e.fav ? ' fav' : '') + (e.id === state.sid ? ' active' : '') + (e.unread ? ' unread' : '');
       row.dataset.sid = e.id;
+      const f = document.createElement('button');
+      f.className = 'f';
+      f.type = 'button';
+      f.title = e.fav ? '取消收藏' : '收藏此会话';
+      f.textContent = '⭐';
+      f.addEventListener('click', (ev) => {
+        ev.stopPropagation(); // 点星标只切收藏，不许顺手打开会话
+        post({ type: 'favorite', sid: e.id, fav: !e.fav });
+      });
       const col = document.createElement('div');
       col.className = 'col';
       const t = document.createElement('div');
@@ -831,7 +871,7 @@
         ev.stopPropagation();
         askDelete(e.id, e.title || e.id);
       });
-      row.append(col, d, rn, x);
+      row.append(f, col, d, rn, x);
       row.addEventListener('click', () => openSession(e.id, { open: true }));
       listpop.appendChild(row);
     }
@@ -1024,6 +1064,13 @@
 
   stopBtn.addEventListener('click', () => post({ type: 'stop', sid: state.sid }));
   retryBtn.addEventListener('click', () => post({ type: 'retry', sid: state.sid }));
+  // 收藏当前会话：与 💬 同级的头部控件，开着列表点它也别把列表关掉（要看行重排）
+  favBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!state.sid) return;
+    const cur = state.index.find((x) => x.id === state.sid);
+    post({ type: 'favorite', sid: state.sid, fav: !(cur && cur.fav) });
+  });
   // content script 里没有 chrome.runtime.openOptionsPage（会抛 TypeError，表现为「点了没反应」）
   $('#gear').addEventListener('click', () => post({ type: 'open-options' }));
 

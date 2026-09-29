@@ -11,19 +11,21 @@ const SYSTEM = `你是「孢子」，一个看截图答题的助手。规则：
 - 中文作答；题目是英文则用英文。数学式子用 LaTeX（行内 $...$）。
 - 拿不准就明说拿不准，绝不编造。`;
 
-const PHASE_A = `这是一道题目截图。**直接给结论，不要写推理过程**。严格只输出下面五行，不要输出任何其它文字、序号或 markdown：
+const PHASE_A = `这是一道题目截图。**直接给结论，不要写推理过程**。严格只输出下面五行，不要输出任何其它文字、序号或 markdown（WHY 写在 ANS 前面：先把解析想清楚，答案照着解析落）：
 NO: <题号，直接写数字；图上没有题号就写 无>
 TITLE: <题目大意，≤12 个字，浓缩这道题在问什么；不要带题号、选项字母和答案本体>
-ANS: <答案本体。选择题必须写成「A（-1）」这种「选项字母 +（结果）」的形式；填空/解答直接给结论，≤40 字>
 WHY: <一句话解析，≤60 字>
+ANS: <答案本体，必须与 WHY 的结论一致：WHY 判「说法错误」，ANS 就必须是代表「错」的那个选项，绝不能一个说对一个说错。选择题必须写成「A（-1）」这种「选项字母 +（结果）」的形式；填空/解答直接给结论，≤40 字>
 CERT: <你对本答案的把握：纯计算/教材常识、一步就能确认的，写 <<ok>>；需要核对事实、年份、数据、术语或你没把握的，写 <<check>>>`;
 
 const PHASE_B = `你刚才已给出初答，现在只需核实它（只输出结果，不要写推理草稿）。
 - 纯计算题、教材常识、且你确信无误：可直接给 VERDICT: OK，不必用工具。
 - 涉及事实、年份、人物、术语、数据、政策、代码 API 或你没把握的点：先用 web_search 检索（最多 $R$ 轮），必要时用 web 抓正文核对，再下结论。
+- 初答的 ANS 与 WHY 结论互相打架，或你核对后与初答不一致：判 FIX，并在 ANS 行给出正确答案。
 - 只核对与答案相关的关键点，不要复述题目。
-最后输出严格两行（NOTE 必填，不许留空）：
+最后输出严格三行（NOTE 必填，不许留空）：
 VERDICT: OK | FIX
+ANS: <仅当 FIX：修正后的答案本体，格式与初答 ANS 行一致；判 OK 就写 无>
 NOTE: <一句话核实说明，必须点名你依据的来源（站点/标题/数值）；若 FIX，先给正确结论再给一句话解析；找不到可靠依据就写「未找到可靠来源，答案存疑」。≤90 字>`;
 
 // ------------------------------------------------------------------ 解析
@@ -68,13 +70,61 @@ export function parsePhaseA(raw) {
 
 export function parsePhaseB(raw) {
   const verdict = /^VERDICT:\s*(FIX|OK)\b/im.exec(raw)?.[1]?.toUpperCase() || '';
+  // FIX 时模型会把修正后的答案写在 ANS 行：NOTE 的 [\s\S]* 会一直吃到文末，所以单独再抓一次
+  const ans = /^ANS:\s*(.*)$/im.exec(raw)?.[1]?.trim() || '';
   let note = /^NOTE:\s*([\s\S]*)$/im.exec(raw)?.[1]?.trim() || '';
   if (!note) {
-    note = raw.replace(/^(VERDICT|NOTE):.*$/gm, '').trim();
+    note = raw.replace(/^(VERDICT|NOTE|ANS):.*$/gm, '').trim();
   }
+  note = note.replace(/^\s*ANS:.*$/gm, '').trim(); // 模型把 ANS 排在 NOTE 后面时会混进说明
   if (!note) note = '（模型没给出核实说明，建议自己再看一眼来源）';
-  if (!verdict) return { verdict: '', note: note.trim(), ran: true };
-  return { verdict, note: note.trim(), ran: true };
+  if (!verdict) return { verdict: '', note: note.trim(), ans, ran: true };
+  return { verdict, note: note.trim(), ans, ran: true };
+}
+
+// ------------------------------------------------------------------ 初答自检
+
+const POL_FALSE = /(错误|不对|不正确|不成立|不属实|有误|选错|并非|不满足)/;
+const POL_TRUE = /(正确|无误|成立|属实|选对|满足)/;
+
+/** 一句话里的结论极性：false=判错/不成立，true=判对/成立；看不出极性回 null */
+function polarityOf(seg) {
+  const s = String(seg || '').trim();
+  if (!s) return null;
+  if (POL_FALSE.test(s)) return false;
+  if (/^(错|否)$/.test(s)) return false;
+  if (POL_TRUE.test(s)) return true;
+  if (/^(对|是)$/.test(s)) return true;
+  return null;
+}
+
+/** 解析的极性：从最后一个分句往前找，第一个带极性词的分句说了算（「故该说法错误」这类结论都在句尾） */
+function polarityOfWhy(why) {
+  const parts = String(why || '')
+    .split(/[，,。；;！？!、\s]+/)
+    .filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = polarityOf(parts[i]);
+    if (p !== null) return p;
+  }
+  return null;
+}
+
+/** 答案行的极性：判断题是「A（对）/ B（错）」；括号里是数值/字母（普通选择题）就不判 */
+function polarityOfAns(ans) {
+  const text = String(ans || '').trim();
+  const m = /（([^）]{1,8})）|\(([^)]{1,8})\)/.exec(text);
+  return polarityOf(m ? m[1] || m[2] : text);
+}
+
+/**
+ * 答案行与解析结论互相打架：`第17题 A（对）` + `…故该说法错误`。
+ * 调用方据此**不许**走 `<<ok>>` 跳过核实的捷径 —— 用户看到的就是这种自相矛盾的截图。
+ */
+export function contradicts(ans, why) {
+  const a = polarityOfAns(ans);
+  const w = polarityOfWhy(why);
+  return a !== null && w !== null && a !== w;
 }
 
 /** 流式阶段展示用：把 NO:/ANS:/WHY: 的字段拍成人话 */
@@ -271,7 +321,8 @@ async function verifyPhase({ sess, answer, idx, sid, emit, api, bump, settings, 
         ...msgs,
         {
           role: 'user',
-          content: '检索到此为止。现在只输出严格两行：VERDICT: OK|FIX，NOTE: 一句话结论与依据（≤80字）。',
+          content:
+            '检索到此为止。现在只输出严格三行：VERDICT: OK|FIX，ANS: FIX 时给修正后答案（OK 写 无），NOTE: 一句话结论与依据（≤80字）。',
         },
       ],
       maxTokens: 300,
@@ -288,6 +339,13 @@ async function verifyPhase({ sess, answer, idx, sid, emit, api, bump, settings, 
     verify = { verdict: '', note: '核实失败（网络或模型异常），可点 ↻ 重试。', ran: true };
   }
   verify.think = answer.verify?.think || ''; // 核实过程的思考要留得住，重渲染时不丢
+  // 判 FIX 且给出了修正答案 → 覆盖答案行：否则「答案行说对、核实说明说错」又会并排摆着
+  const fixed = String(verify.ans || '').trim();
+  if (verify.verdict === 'FIX' && fixed && !/^(无|none|-)$/i.test(fixed) && fixed !== answer.ans) {
+    store.logEvent(`verify FIX 覆盖答案 sid=${sid} ${JSON.stringify(answer.ans)} → ${JSON.stringify(fixed)}`);
+    answer.ans = fixed;
+    emit({ type: 'answer-delta', sid, idx, ...answer, preview: formatAnswerPreview(answer.no, answer.ans, answer.why) });
+  }
   answer.verify = verify;
   emit({ type: 'verify-delta', sid, idx, ...verify, done: true });
 }
@@ -455,8 +513,16 @@ export async function runTurn({ sid, emit, signal, settings }) {
     kickNaming(sess, answer, emit);
 
     // ---- 守卫：初答自评 <<ok>> → 跳过联网核实（省时间，但要在 UI 上说清楚跳过了）
+    // 例外：答案行与解析结论打架（「A（对）」+「故该说法错误」）→ 再自信也得让阶段B 复核，
+    // 否则用户会看到「答案说对、解析说错」这种自相矛盾的截图
     const certain = isSelfCertain(rawA);
-    if (certain) {
+    const fighting = contradicts(answer.ans, answer.why);
+    if (fighting) {
+      store.logEvent(
+        `初答自检矛盾 sid=${sid} ANS=${JSON.stringify(answer.ans)} WHY=${JSON.stringify(answer.why)} → 不跳过核实`,
+      );
+    }
+    if (certain && !fighting) {
       answer.verify = {
         ran: false,
         skipped: true,

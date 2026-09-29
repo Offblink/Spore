@@ -407,6 +407,13 @@ async function handleContent(msg, port) {
       return;
     }
 
+    case 'favorite': {
+      // 收藏只动索引的 fav 字段；抽屉靠 storage.onChanged 重排列表与星标
+      await store.setFavorite(msg.sid, !!msg.fav);
+      store.logEvent(`favorite → sid=${msg.sid} fav=${!!msg.fav}`);
+      return;
+    }
+
     case 'delete':
       stopTurn(msg.sid);
       await store.deleteSession(msg.sid);

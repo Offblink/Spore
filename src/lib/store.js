@@ -266,6 +266,11 @@ export async function saveSession(sess) {
   return sess;
 }
 
+/** 收藏/取消收藏：只动索引的 fav 字段（列表置顶与星标都读它），不动会话正文 */
+export async function setFavorite(id, fav) {
+  await patchIndex(id, { fav: !!fav });
+}
+
 /** 局部更新索引（状态/红点/标题），不动会话正文 —— 高频，避免整份重写 */
 export async function patchIndex(id, patch) {
   let hit = false;
