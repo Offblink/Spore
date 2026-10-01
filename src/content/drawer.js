@@ -961,11 +961,24 @@
       return node;
     }
     node.className = 'msg bot';
+    // tools 槽必须排在 .chat 之前：e2e 用 `.chat:last-of-type` 取最后一条正文，
+    // :last-of-type 认的是元素类型（div）—— tools 槽排后面会把它顶掉，选择器直接失配
     node.innerHTML =
       `<div class="think" data-think="chat"><button class="think-h" type="button">思考</button><div class="think-b"></div></div>` +
+      `<div data-slot="tools"></div>` +
       `<div class="chat" data-slot="text"></div>`;
     paintThink(node, 'chat', m.think || '', !!m.text);
     node.querySelector('[data-slot=text]').innerHTML = md(m.text || '');
+    if (m.tools?.length) {
+      const box = node.querySelector('[data-slot=tools]');
+      box.innerHTML = '<div class="tools"></div>';
+      for (const t of m.tools) {
+        const row = document.createElement('div');
+        row.className = 'tool';
+        row.textContent = t;
+        box.querySelector('.tools').appendChild(row);
+      }
+    }
     return node;
   }
 

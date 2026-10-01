@@ -43,7 +43,7 @@ export const DEFAULT_SETTINGS = {
   endpoint: 'https://api.deepseek.com/chat/completions',
   model: 'deepseek-v4-flash-vision-exp',
   apiKey: '', // 真实 key 不入库：设置页填写；e2e 从 tests/_run/e2e_key（gitignore）或 SPORE_E2E_KEY 读
-  maxToolRounds: 5, // 阶段B 最多几轮检索
+  maxToolRounds: 5, // 核实阶段最多几轮检索；追问的工具循环取 max(1, 它)
   historyLimit: 10, // 上下文保留多少条消息
   fastNoThink: true, // 初答「直接作答不写推理」（实测 reasoning_effort=none 可归零思考）
   autoVerify: true, // 答完自动联网核实；关掉后回答里出现「核实一下」按钮，点它才核实

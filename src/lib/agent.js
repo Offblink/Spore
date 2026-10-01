@@ -9,6 +9,7 @@ import * as store from './store.js';
 const SYSTEM = `你是「孢子」，一个看截图答题的助手。规则：
 - 直接给答案：先结论，再依据，绝不复述题目，绝不客套。
 - 中文作答；题目是英文则用英文。数学式子用 LaTeX（行内 $...$）。
+- 你有 web_search（联网检索）和 web（抓网页正文）两个工具：涉及事实、年份、版本、数据等外部信息，或用户要你「再查一下 / 核实 / 查证」时，直接调用工具查完再答，绝不回「我查不了」；纯推理与讲道理不用调工具。
 - 拿不准就明说拿不准，绝不编造。`;
 
 const PHASE_A = `这是一道题目截图。**直接给结论，不要写推理过程**。严格只输出下面五行，不要输出任何其它文字、序号或 markdown（WHY 写在 ANS 前面：先把解析想清楚，答案照着解析落）：
@@ -410,7 +411,7 @@ export async function runTurn({ sid, emit, signal, settings }) {
   // 任何进度变化都排一次节流落盘：SW 中途被回收时最多丢 1.2s，而不是整个回合
   const bump = () => store.scheduleSave(sess);
 
-  // ------------------------------------------------ 追问（纯文本，最快）
+  // ------------------------------------------------ 追问（纯文本；带检索工具 —— 用户说「再查一下」就真的去查）
   if (!store.hasImage(last)) {
     sess.status = 'answering';
     await store.patchIndex(sid, { status: 'answering' });
@@ -419,24 +420,75 @@ export async function runTurn({ sid, emit, signal, settings }) {
     const idx = sess.messages.length - 1;
     emit({ type: 'chat-start', sid, idx });
     try {
-      const res = await streamChat({
-        ...api,
-        messages: [{ role: 'system', content: SYSTEM }, ...(await historyMessages(sess, settings))],
-        onDelta: (kind, chunk, acc) => {
-          // 正文与思考分开收：思考进「思考」块（会显示），绝不混进正文
-          if (kind === 'reasoning') {
-            msg.think = acc.reasoning || '';
-            bump();
-            emit({ type: 'think-delta', sid, idx, kind: 'chat', think: msg.think });
-            return;
-          }
-          if (kind !== 'text' || !chunk) return;
-          msg.text += chunk;
+      // 引擎链设置与阶段B同一份；追问可能是本会话第一次动工具（<<ok>> 跳过核实后用户才追问）
+      setSearchProxy(settings.proxy);
+      // 轮次沿用设置页的检索轮数，但下限 1：那个 0 关的是「自动核实」，
+      // 不是「永远不许查」—— 追问里点名要查时必须查得到（本轮核心诉求）
+      const maxRounds = Math.max(1, settings.maxToolRounds || 0);
+      store.logEvent(`chat tool loop start sid=${sid} rounds=${maxRounds}`);
+      const msgs = [{ role: 'system', content: SYSTEM }, ...(await historyMessages(sess, settings))];
+      // 每轮的 acc 从零开始，不接基线会把上一轮的思考整段冲掉
+      let thinkBase = '';
+      const onDelta = (kind, chunk, acc) => {
+        // 正文与思考分开收：思考进「思考」块（会显示），绝不混进正文
+        if (kind === 'reasoning') {
+          msg.think = thinkBase + (acc.reasoning || '');
           bump();
-          emit({ type: 'chat-delta', sid, idx, text: chunk, total: msg.text });
-        },
-      });
-      if (!msg.text && res.content) msg.text = res.content;
+          emit({ type: 'think-delta', sid, idx, kind: 'chat', think: msg.think });
+          return;
+        }
+        if (kind !== 'text' || !chunk) return;
+        msg.text += chunk;
+        bump();
+        emit({ type: 'chat-delta', sid, idx, text: chunk, total: msg.text });
+      };
+      let last = null;
+      for (let round = 0; round < maxRounds; round++) {
+        if (signal?.aborted) throw new AbortedError();
+        last = await streamChat({ ...api, messages: msgs, tools: TOOLS, onDelta });
+        if (!last.toolCalls?.length) break;
+        emit({ type: 'status', sid, status: 'searching', text: '检索中…' });
+        msgs.push({
+          role: 'assistant',
+          content: last.content || null,
+          tool_calls: last.toolCalls.map((t) => ({
+            id: t.id,
+            type: 'function',
+            function: { name: t.name, arguments: t.args },
+          })),
+        });
+        for (const tc of last.toolCalls) {
+          let args = {};
+          try {
+            args = JSON.parse(tc.args || '{}');
+          } catch {
+            // 尾逗号等常见小毛病：去掉再试一次
+            try {
+              args = JSON.parse(String(tc.args || '{}').replace(/,\s*([}\]])/g, '$1'));
+            } catch {
+              args = {};
+            }
+          }
+          const brief = String(args.query || args.url || '').slice(0, 80);
+          (msg.tools ||= []).push(tc.name === 'web' ? `读取 ${brief}` : `检索 ${brief}`);
+          emit({ type: 'tool', sid, idx, name: tc.name, brief });
+          const out = await dispatch(tc.name, args, signal);
+          msgs.push({ role: 'tool', tool_call_id: tc.id, content: out });
+        }
+        thinkBase = msg.think || '';
+        emit({ type: 'status', sid, status: 'answering', text: '' });
+        last = null; // 这一轮只有工具调用，正文还得等下一轮
+      }
+      if (!last) {
+        if (signal?.aborted) throw new AbortedError();
+        // 轮次用光：收走工具，强制直接作答（与阶段B 同一个收尾套路）
+        last = await streamChat({
+          ...api,
+          messages: [...msgs, { role: 'user', content: '检索到此为止。不要再调用任何工具，直接用正文回答用户。' }],
+          onDelta,
+        });
+      }
+      if (!msg.text && last?.content) msg.text = last.content;
       sess.status = 'done';
       await store.flushSave(sess);
       emit({ type: 'turn-end', sid, idx });

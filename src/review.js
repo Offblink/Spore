@@ -228,6 +228,17 @@
     }
     node.innerHTML = thinkDetails('思考', m.think || '') + '<div class="chat"></div>';
     node.querySelector('.chat').innerHTML = md(m.text || '');
+    if (m.tools?.length) {
+      const box = document.createElement('div');
+      box.className = 'tools';
+      for (const t of m.tools) {
+        const row = document.createElement('div');
+        row.className = 'tool';
+        row.textContent = t;
+        box.appendChild(row);
+      }
+      node.appendChild(box);
+    }
     return node;
   }
 

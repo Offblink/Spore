@@ -955,6 +955,77 @@ def main():
                 reply[:80],
             )
 
+            # ---------------- 追问随时可调检索工具（不只 <<ok>> 触发器；2026-10-01 用户反馈） ----------------
+            # 第一条追问是纯聊天（不调工具）；这条点名「先检索再答」，必须真的进工具循环。
+            # chip 在 dispatch 之前推出 → 断言不依赖当天引擎可达；日志行是我们自己打的，恒成立。
+            guard(
+                page,
+                "followup-search",
+                lambda: (
+                    # 第一条追问若还在流式收尾，输入框是禁用的：先等它恢复再填
+                    page.wait_for_function(
+                        """() => {
+                            const h = document.querySelector('spore-drawer');
+                            const i = h && h.shadowRoot && h.shadowRoot.querySelector('#input');
+                            return !!(i && !i.disabled);
+                        }""",
+                        timeout=60000,
+                        polling=300,
+                    ),
+                    page.fill("spore-drawer >> #input", "再查一下：vLLM 是什么？先调用 web_search 检索，再用一句话回答"),
+                    page.keyboard.press("Enter"),
+                    page.wait_for_timeout(800),
+                ),
+            )
+            guard(
+                page,
+                "追问检索回合收尾",
+                lambda: page.wait_for_function(
+                    """() => {
+                        const h = document.querySelector('spore-drawer');
+                        const sr = h && h.shadowRoot;
+                        const input = sr && sr.querySelector('#input');
+                        const chats = sr ? [...sr.querySelectorAll('#stream .chat')] : [];
+                        return !!(input && !input.disabled && chats.length && chats[chats.length - 1].textContent.trim().length > 3);
+                    }""",
+                    timeout=180000,
+                    polling=500,
+                ),
+            )
+            if sw:
+                slogs2 = sw.evaluate("async () => (await chrome.storage.local.get('spore.log'))['spore.log'] || []")
+                check(
+                    "追问走了工具循环（日志 chat tool loop start）",
+                    any("chat tool loop start" in l for l in slogs2),
+                    str([l for l in slogs2 if "chat tool loop" in l][:1]),
+                )
+            search_tools = page.evaluate(
+                """() => {
+                    const sr = document.querySelector('spore-drawer').shadowRoot;
+                    const last = [...sr.querySelectorAll('#stream .msg.bot')].pop();
+                    return last ? last.querySelectorAll('.tool').length : 0;
+                }"""
+            )
+            check("追问里模型真的调了检索（新 chat 行出现工具 chip）", search_tools >= 1, f"tools={search_tools}")
+            reply2 = (
+                page.evaluate(
+                    """() => {
+                        const sr = document.querySelector('spore-drawer').shadowRoot;
+                        const chats = [...sr.querySelectorAll('#stream .chat')];
+                        const el = chats[chats.length - 1];
+                        return el ? el.textContent.trim() : '';
+                    }"""
+                )
+                or ""
+            )  # 取最后一条：querySelector 会命中第一个 chat（第一条追问），那不是这条检索的回答
+            print("  检索追问回答:", reply2[:300], flush=True)
+            check(
+                "检索追问给出中文回答且没推说查不了",
+                any("\u4e00" <= c <= "\u9fff" for c in reply2)
+                and not any(w in reply2 for w in ("查不了", "无法联网", "没有联网", "不能联网")),
+                reply2[:100],
+            )
+
             # ---------------- 通知锚点：屏幕右下角 ----------------
             toast_right = page.evaluate(
                 """() => {
