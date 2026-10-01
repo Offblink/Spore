@@ -208,12 +208,33 @@
       }
       #renameInput:focus { border-color: var(--accent); background: #fff }
 
+      /* ---- toast：抽屉同款（右下角飞入、3.6s 自动收、点击打开会话），收藏两处入口共用 ---- */
+      #toasts {
+        position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px;
+        align-items: flex-end; pointer-events: none; z-index: 60;
+      }
+      .toast {
+        pointer-events: auto; max-width: 340px; background: #14172a; color: #fff; border-radius: 12px;
+        padding: 11px 15px; box-shadow: 0 14px 34px rgba(10, 12, 24, 0.34); cursor: pointer;
+        transform: translateX(calc(100% + 40px)); opacity: 0;
+        transition: transform 0.36s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.36s;
+      }
+      .toast.on { transform: none; opacity: 1 }
+      .toast .tt {
+        font-size: 14px; font-weight: 650; letter-spacing: 0.01em; margin-bottom: 2px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .toast .tb {
+        font-size: 13.5px; color: #c8cbdd; line-height: 1.5;
+        display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+      }
+
       ::-webkit-scrollbar { width: 9px; height: 9px }
       ::-webkit-scrollbar-thumb { background: #dfe2ee; border-radius: 99px }
       ::-webkit-scrollbar-thumb:hover { background: var(--accent) }
       ::-webkit-scrollbar-track { background: transparent }
       @media (prefers-reduced-motion: reduce) {
-        #sidebar, .seg-b, .row, .row .f, #rFav { transition: none !important }
+        #sidebar, .seg-b, .row, .row .f, #rFav, .toast { transition: none !important }
       }
     </style>
   </head>
@@ -262,6 +283,7 @@
         </div>
       </div>
     </div>
+    <div id="toasts"></div>
     <script src="src/lib/md.js"></script>
     <script src="src/review.js"></script>
   </body>

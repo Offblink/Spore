@@ -1330,12 +1330,35 @@ def main():
                 rev.click("#collapse")
                 rev.wait_for_timeout(700)
 
+                def rev_toast():
+                    # 提示可叠多条，取最新那条（同抽屉的 toast_title 口径）
+                    return rev.evaluate(
+                        """() => {
+                            const ts = document.querySelectorAll('#toasts .toast .tt');
+                            return ts.length ? ts[ts.length - 1].textContent : null;
+                        }"""
+                    )
+
                 rev.click("#rFav")
                 rev.wait_for_timeout(400)
                 check("整页 ★ 收藏当前会话", fav_of(cur_sid) is True, f"sid={cur_sid}")
+                check("整页 ★ 收藏弹提示", rev_toast() == "已收藏", rev_toast())
                 rev.click("#rFav")
                 rev.wait_for_timeout(400)
                 check("整页 ★ 再点取消收藏", fav_of(cur_sid) is False, f"sid={cur_sid}")
+                check("整页 ★ 取消弹提示", rev_toast() == "已取消收藏", rev_toast())
+
+                # 列表行 ★（第二处收藏入口）也要弹提示；点两次恢复原状，不污染后续用例
+                rev.hover("#list .row.active")
+                rev.click("#list .row.active .f")
+                rev.wait_for_timeout(400)
+                check("整页行内 ★ 收藏生效", fav_of(cur_sid) is True, f"sid={cur_sid}")
+                check("整页行内 ★ 收藏弹提示", rev_toast() == "已收藏", rev_toast())
+                rev.hover("#list .row.active")
+                rev.click("#list .row.active .f")
+                rev.wait_for_timeout(400)
+                check("整页行内 ★ 再点取消收藏", fav_of(cur_sid) is False, f"sid={cur_sid}")
+                check("整页行内 ★ 取消弹提示", rev_toast() == "已取消收藏", rev_toast())
 
                 other_id = sw.evaluate(
                     "async () => ((await chrome.storage.local.get('spore.index'))['spore.index'])[1].id"

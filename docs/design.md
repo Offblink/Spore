@@ -118,6 +118,7 @@ Fungi 是「贴底就跟随，上滑就锁定」。本项目按需求改成：**
 | 反馈 | 落地 |
 |---|---|
 | 「工具不只是没收到 `<<ok>>` 就搜索的触发器，还是一个 agent 可以随时调用的工具 —— 追问说『再查一下』，他不该说查不了，而是真的再去查」 | 根因：`agent.js` 追问分支只发**一次不带 `tools` 的 `streamChat`**，模型手里根本没有 `web_search`/`web`（工具循环只存在于阶段B）。修法对齐 Fungi `agent.py` 的「每轮对话都带工具注册表」：① 追问分支改成同一套工具循环（`TOOLS` + `dispatch` + 轮次预算 + 轮次用光强制收尾），轮次取 `max(1, settings.maxToolRounds)` —— 设置里那个 0 关的是「自动核实」，不是「永远不许查」；② `SYSTEM` 明确声明两个工具与「用户要查就查、绝不回『我查不了』」；③ chat 消息行补 `[data-slot=tools]` 槽位（抽屉 `case 'tool'` 原来找不到槽位会静默丢 chip），抽屉与整页重渲染都恢复 `m.tools`；④ 思考跨轮拼 `thinkBase`（每轮 acc 从零开始，不接基线会把上一轮思考整段冲掉），日志留 `chat tool loop start`。设置页 `maxToolRounds` 标签同步改口径（0 = 不自动核实，追问仍可查 1 轮）。e2e 加 3 条断言：日志行 / 新 chat 行出现工具 chip / 回答是中文且没推说查不了 |
+| 「搜题记录页面点收藏（两处）没有像抽屉那样的弹出提示」 | 根因：抽屉的提示是 `setFav()` 本地 `showToast` 弹的（SW 的 `favorite` 分支只写存储不广播 toast），整页的 `toggleFav()` 压根没有 toast 实现。修法：`review.html` 加 `#toasts` 容器 + 抽屉同款 toast CSS（右下角飞入、3.6s 自动收、`prefers-reduced-motion` 里同步禁动画）；`review.js` 加 `showToast()`（点击打开该会话，已是当前会话则只收起）并在 `toggleFav()` 里弹 —— 顶栏 ★ 与行内 ★ 两处入口都汇到 `toggleFav`，一个调用点全覆盖，且 SW 不广播故抽屉与整页不会重复弹。e2e 加 6 条断言：顶栏/行内 × 收藏/取消 × （状态落存储 + 弹提示），行内点两次复原不污染后续用例 |
 
 ## 七、增量实现与验证
 

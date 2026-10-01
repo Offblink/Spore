@@ -141,7 +141,31 @@
     post({ type: 'favorite', sid, fav: on });
     const hit = state.index.find((x) => x.id === sid);
     if (hit) hit.fav = on; // 乐观更新：SW 改完存储会再广播一次，这里不等回执
+    showToast({ sid, title: on ? '已收藏' : '已取消收藏', text: on ? '会话列表里会标出这颗星' : '已取消标记' });
     renderList();
+  }
+
+  // ------------------------------------------------------------------ toast
+  // 抽屉同款（右下角飞入、3.6s 自动收、点击打开会话）。SW 的 favorite 消息不广播 toast ——
+  // 谁点了谁自己弹，所以抽屉与整页不会重复弹同一条。
+  function showToast({ sid, title, text }) {
+    const box = document.getElementById('toasts');
+    if (!box) return;
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.innerHTML = '<div class="tt"></div><div class="tb"></div>';
+    el.querySelector('.tt').textContent = title || 'Spore';
+    el.querySelector('.tb').textContent = text || '';
+    el.addEventListener('click', () => {
+      if (sid && sid !== state.sid) openSession(sid);
+      el.remove();
+    });
+    box.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('on'));
+    setTimeout(() => {
+      el.classList.remove('on');
+      setTimeout(() => el.remove(), 360);
+    }, 3600);
   }
 
   // ---------------------------------------------------------------- 历史
