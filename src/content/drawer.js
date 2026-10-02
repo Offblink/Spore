@@ -362,8 +362,11 @@
   let port = null;
   let pingTimer = null;
   let retryDelay = 400;
+  let reconnectTimer = null;
+  let suspended = false; // pagehide → pageshow(persisted) 之间为 true：不建口、不发消息
 
   function post(msg) {
+    if (suspended) return; // 页面正要去/刚去 bfcache：垂死文档里不许再开新口（会成孤儿）
     if (!port) connect(); // 端口断了（SW 重启/扩展重载）时点按钮会静默丢消息：先补一次连
     try {
       port?.postMessage(msg);
@@ -375,10 +378,24 @@
   }
 
   function connect() {
+    if (suspended) return; // 同上：只允许在活跃文档里建口
+    // 单飞：bfcache 恢复时 pageshow 与断连重连定时器可能都想连，只留一个口
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (port) {
+      try {
+        port.disconnect();
+      } catch {
+        /* ignore */
+      }
+      port = null;
+    }
     try {
       port = chrome.runtime.connect({ name: 'spore' });
     } catch {
-      setTimeout(connect, retryDelay);
+      reconnectTimer = setTimeout(connect, retryDelay);
       return;
     }
     retryDelay = 400;
@@ -388,7 +405,8 @@
     pingTimer = setInterval(() => post({ type: 'view', sid: state.sid, visible: visible() }), 5000);
     post({ type: 'view', sid: state.sid, visible: visible() });
 
-    port.onMessage.addListener((msg) => {
+    const p = port;
+    p.onMessage.addListener((msg) => {
       if (msg.type === 'ping') return;
       if (msg.type === 'ev') return onEvent(msg.ev);
       if (msg.type === 'turn-start') return;
@@ -401,13 +419,44 @@
       if (msg.type === 'title-changed') return syncIndex();
     });
 
-    port.onDisconnect.addListener(() => {
+    p.onDisconnect.addListener(() => {
+      // Chrome 把「端口为什么被关」挂在 runtime.lastError 上，不同版本还会在断连端
+      // （甚至两端）暴露 —— 不同步读掉它，控制台就刷
+      // Unchecked runtime.lastError: The page keeping the extension port is moved into
+      // back/forward cache, so the message channel is closed.
+      const why = chrome.runtime.lastError?.message;
+      if (why) console.log('[spore] 端口断开：' + why);
+      if (port !== p) return; // 已经换成新口了（bfcache 恢复后的重建），别再踢一次
       clearInterval(pingTimer);
       port = null;
       retryDelay = Math.min(4000, retryDelay * 2);
-      setTimeout(connect, retryDelay);
+      reconnectTimer = setTimeout(connect, retryDelay);
     });
   }
+
+  // ---- bfcache：页面被搬进往返缓存时 Chrome 会掐掉端口（有些版本不给 onDisconnect，
+  // 恢复后端口就是死的，抽屉从此收不到流式事件）。所以进缓存前主动断，回来时主动重连；
+  // 期间挂起文档（suspended），垂死文档里任何 post/connect 都不再开新口。 ----
+  window.addEventListener('pagehide', () => {
+    suspended = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    clearInterval(pingTimer);
+    try {
+      port?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    port = null;
+  });
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) {
+      suspended = false;
+      connect(); // 从往返缓存回来：端口已被关掉，重建
+    }
+  });
 
   // ------------------------------------------------------------------ 存储
   async function syncIndex() {

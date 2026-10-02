@@ -71,6 +71,8 @@ Playwright + 本机 Edge **无头**跑 176 项断言（截图链路、两阶段�
 现场截图留在 `tests/_shots/`。跑之前会先过一遍离线契约：`node --test tests/search.test.mjs`
 （检索引擎链的三道闸：ddg 解析/诱饵页拒绝/空页重试/逐腿 429 报错/bing 跳转还原）与
 `node --test tests/answer.test.mjs`（初答自检的极性判定、阶段B `ANS` 行解析）。
+另有独立脚本 `python tests/bfcache.py`：端口在页面进/出往返缓存（bfcache）后的回归核验
+（端口不翻倍、断连原因被消费、SW→抽屉的广播往返后仍送得到），不进上面的门禁。
 
 ## 安装
 
@@ -116,6 +118,12 @@ src/
   授权失效（浏览器重启会重置）→ 设置页标红提醒重选。
 - **回合状态**：`store.beginTurnSession()` 把在途会话对象设成唯一事实源，所有写入方（心跳、起名、
   收尾）拿到同一份引用 —— 否则各自「重读再写回」会用陈旧副本把答案覆盖没（实测踩过）。
+- **端口生命周期**：抽屉与整页各开一条名为 `spore` 的端口；页面被搬进**往返缓存（bfcache）**时 Chrome 会掐掉它，
+  断连原因挂在 `chrome.runtime.lastError` 上 —— **必须在 `onDisconnect` 里同步读掉**，否则控制台/扩展管理页刷
+  `Unchecked runtime.lastError: The page keeping the extension port is moved into back/forward cache, …`。
+  配套三件：`pagehide` 主动 `disconnect()`、`pageshow(persisted)` 主动重连、`suspended` 挂起标志
+  （垂死文档里 `post()`/`connect()` 一律不建口，否则 SW 会攒下永远关不掉的孤儿端口）。
+  回归核验独立脚本：`python tests/bfcache.py`（8 条判据，不进 e2e 门禁）。
 - **并发**：一个会话一个 `AbortController`，互不阻塞；端口每 5s 上报「在看哪个会话」延长 SW 生命周期，
   SW 被杀后残留的 `answering` 状态在下次启动时判为「已中断」并亮红点（可点 `↻` 重跑）。
 - **异步起名**：改名与在途回合会互相覆盖（在途的 `sess` 还攥着旧 title），所以 `store.js` 用一份

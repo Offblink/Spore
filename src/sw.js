@@ -503,7 +503,13 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener((msg) => {
     handleContent(msg, port).catch((e) => console.warn('[spore] msg failed', e));
   });
-  port.onDisconnect.addListener(() => ports.delete(port));
+  port.onDisconnect.addListener(() => {
+    // 端口被关的原因挂在 runtime.lastError 上（页面进 bfcache 时 Chrome 主动关端口），
+    // 读掉它才不会在 SW 控制台刷 Unchecked runtime.lastError: … moved into back/forward cache …
+    const why = chrome.runtime.lastError?.message;
+    if (why) store.logEvent(`port 断开 tab=${port.__tabId}：${why}`);
+    ports.delete(port);
+  });
 });
 
 // ------------------------------------------------------------------ 入口
