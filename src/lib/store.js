@@ -271,6 +271,38 @@ export async function setFavorite(id, fav) {
   await patchIndex(id, { fav: !!fav });
 }
 
+// ---------------------------------------------------------------- 科目（整页搜题记录的目录形态）
+// 只有整页用，抽屉列表不认识它；归属记在索引条目的 sub 字段上（null = 未归类）。
+const K_SUBJ = 'spore.subjects';
+
+export async function listSubjects() {
+  const got = await chrome.storage.local.get(K_SUBJ);
+  return got[K_SUBJ] || [];
+}
+
+/** 新建科目：追加到尾部（渲染时一律排在列表最前，创建越早越靠上） */
+export async function createSubject(name) {
+  const clean = String(name || '').trim().slice(0, 40);
+  if (!clean) return null;
+  const list = await listSubjects();
+  const sub = { id: `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, name: clean };
+  list.push(sub);
+  await chrome.storage.local.set({ [K_SUBJ]: list });
+  return sub;
+}
+
+/** 删除科目：成员解除归属（会话一个都不删），再摘掉科目本身 */
+export async function deleteSubject(id) {
+  const list = (await listSubjects()).filter((s) => s.id !== id);
+  await chrome.storage.local.set({ [K_SUBJ]: list });
+  await setIndex((idx) => idx.map((e) => (e.sub === id ? { ...e, sub: null } : e)));
+}
+
+/** 会话归类：sub 为 null 就是移出科目。归属只写索引，不动会话正文。 */
+export async function assignSubject(sid, sub) {
+  await patchIndex(sid, { sub: sub || null });
+}
+
 /** 局部更新索引（状态/红点/标题），不动会话正文 —— 高频，避免整份重写 */
 export async function patchIndex(id, patch) {
   let hit = false;

@@ -414,6 +414,21 @@ async function handleContent(msg, port) {
       return;
     }
 
+    case 'subject': {
+      // 科目只活在整页搜题记录里；两个面都靠 storage.onChanged 收到 spore.subjects / spore.index 的变化
+      if (msg.op === 'create') {
+        const sub = await store.createSubject(msg.name);
+        store.logEvent(`subject create → ${sub ? `${sub.id} "${sub.name}"` : '（空名被拒）'}`);
+      } else if (msg.op === 'assign') {
+        await store.assignSubject(msg.sid, msg.sub || null);
+        store.logEvent(`subject assign → sid=${msg.sid} sub=${msg.sub || '-'}`);
+      } else if (msg.op === 'delete') {
+        await store.deleteSubject(msg.sub);
+        store.logEvent(`subject delete → id=${msg.sub}`);
+      }
+      return;
+    }
+
     case 'delete':
       stopTurn(msg.sid);
       await store.deleteSession(msg.sid);

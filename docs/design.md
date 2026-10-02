@@ -120,6 +120,12 @@ Fungi 是「贴底就跟随，上滑就锁定」。本项目按需求改成：**
 | 「工具不只是没收到 `<<ok>>` 就搜索的触发器，还是一个 agent 可以随时调用的工具 —— 追问说『再查一下』，他不该说查不了，而是真的再去查」 | 根因：`agent.js` 追问分支只发**一次不带 `tools` 的 `streamChat`**，模型手里根本没有 `web_search`/`web`（工具循环只存在于阶段B）。修法对齐 Fungi `agent.py` 的「每轮对话都带工具注册表」：① 追问分支改成同一套工具循环（`TOOLS` + `dispatch` + 轮次预算 + 轮次用光强制收尾），轮次取 `max(1, settings.maxToolRounds)` —— 设置里那个 0 关的是「自动核实」，不是「永远不许查」；② `SYSTEM` 明确声明两个工具与「用户要查就查、绝不回『我查不了』」；③ chat 消息行补 `[data-slot=tools]` 槽位（抽屉 `case 'tool'` 原来找不到槽位会静默丢 chip），抽屉与整页重渲染都恢复 `m.tools`；④ 思考跨轮拼 `thinkBase`（每轮 acc 从零开始，不接基线会把上一轮思考整段冲掉），日志留 `chat tool loop start`。设置页 `maxToolRounds` 标签同步改口径（0 = 不自动核实，追问仍可查 1 轮）。e2e 加 3 条断言：日志行 / 新 chat 行出现工具 chip / 回答是中文且没推说查不了 |
 | 「搜题记录页面点收藏（两处）没有像抽屉那样的弹出提示」 | 根因：抽屉的提示是 `setFav()` 本地 `showToast` 弹的（SW 的 `favorite` 分支只写存储不广播 toast），整页的 `toggleFav()` 压根没有 toast 实现。修法：`review.html` 加 `#toasts` 容器 + 抽屉同款 toast CSS（右下角飞入、3.6s 自动收、`prefers-reduced-motion` 里同步禁动画）；`review.js` 加 `showToast()`（点击打开该会话，已是当前会话则只收起）并在 `toggleFav()` 里弹 —— 顶栏 ★ 与行内 ★ 两处入口都汇到 `toggleFav`，一个调用点全覆盖，且 SW 不广播故抽屉与整页不会重复弹。e2e 加 6 条断言：顶栏/行内 × 收藏/取消 × （状态落存储 + 弹提示），行内点两次复原不污染后续用例 |
 
+## 六e、第五轮反馈（2026-10-02）
+
+| 反馈 | 落地 |
+|---|---|
+| 「搜题记录页全部列表顶部加『新建科目』，命名后该科目（目录形态）置顶，可以直接拖会话进科目；空科目点开是（空），有会话点开弹会话，再点收回」 | 三段接线：① **存储**（`store.js`）新增 `spore.subjects`（`{id,name}` 数组，创建越早越靠上）与四个函数 `listSubjects`/`createSubject`/`deleteSubject`/`assignSubject`——归属记在 `spore.index` 条目上的 `sub` 字段（`null`=未归类），**只动索引不动会话正文**，仍由 SW 单写者；② **SW** 的 `handleContent` 加 `subject` 消息（`create`/`assign`/`delete` 三个 op，日志行 `subject create/assign/delete`），两个面都靠 `storage.onChanged` 收 `spore.subjects` 与 `spore.index` 的变化，不新增端口事件；③ **整页**：`.sb-head` 加 `#newSub` 按钮 → `#subnew` 命名模态（与重命名同一套 `.box/.acts` 交互，Enter=创建、Esc=关），`renderList` 拆成 `buildRow`/`buildFolder`——科目行 `.sub`（CSS 画的粉色文件夹 + `▸` 展开箭头 + 会话数徽标 + 悬停 `×`）一律排在会话行之前，展开后成员行 `.row.in` 缩进 22px 并带左引导线，**空科目展开显示「（空）把会话拖到这个科目上」**，再次点击收回；展开状态存 `localStorage`（`spore.review.subopen`）。拖放走原生 HTML5 DnD：行 `draggable`，`#list` 上统一 `dragover/drop`（`state.dragSid` + `dataTransfer` 双保险），落点解析成 `closest('.sub, .row.in, .subempty')` 的 `dataset.sub`——落到科目上/科目内/（空）提示 = 归入，落到列表其它位置 = **移出**，命中时给科目行加 `.dz` 高亮。删科目复用居中确认框（`pendingDelete` 改成 `{kind:'sess'\|'sub'}`，文案换成「里面的会话只是移出，不会删」），删完成员自动解除归属。收藏视图不摆科目（按星标平铺）。e2e 加 13 条断言（命名框弹出 / 科目置顶且落存储 / 空科目弹（空）不吞会话行 / 收回再展开 / 真拖（Playwright `drag_and_drop` 走 CDP，`dataTransfer` 是真的）归入 + 索引落 `sub` + 数目徽标 / 拖出 / 删科目留会话） |
+
 ## 七、增量实现与验证
 
 1. P1 骨架与检索：manifest、`llm.js`、`tools.js`、`store.js` —— 四个模块 node 语法/链接检查通过。

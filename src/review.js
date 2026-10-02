@@ -7,11 +7,15 @@
   const $ = (s) => document.querySelector(s);
   const { esc, md } = globalThis.SporeMD; // review.html 里 md.js 排在本文件前面
   const K_INDEX = 'spore.index';
+  const K_SUBJ = 'spore.subjects';
   const K_SESS = 'spore.sess.';
   const KEY_COLLAPSED = 'spore.review.collapsed';
+  const KEY_SUBOPEN = 'spore.review.subopen';
 
   const state = {
     index: [],
+    subjects: [], // 科目（目录形态），创建越早越靠上
+    subOpen: new Set(), // 展开中的科目（页面级状态，存 localStorage）
     sid: null,
     sess: null,
     filter: 'all',
@@ -19,6 +23,7 @@
     follow: true, // 跟随滚动：用户往上翻就断开，滚回底部才重新跟随（抽屉同款纪律）
     pendingDelete: null,
     pendingRename: null,
+    dragSid: null, // 正被拖动的会话 id
   };
   // 历史会反复重绘（回合内 1.2s 落盘一次），图片按 key 缓存，别每次都去 storage 捞几百 KB
   const imgCache = new Map();
@@ -54,15 +59,131 @@
     renderList();
   }
 
+  async function syncSubjects() {
+    const got = await chrome.storage.local.get(K_SUBJ);
+    state.subjects = got[K_SUBJ] || [];
+    renderList();
+  }
+
+  function buildRow(e, subId) {
+    const row = document.createElement('div');
+    row.className =
+      'row' + (e.fav ? ' fav' : '') + (e.id === state.sid ? ' active' : '') + (e.unread ? ' unread' : '');
+    row.dataset.sid = e.id;
+    if (subId) {
+      row.classList.add('in');
+      row.dataset.sub = subId; // 拖放时用来判定「落到哪个科目」
+    }
+    row.draggable = true; // 拖进科目（拖到列表空白处 = 移出科目）
+    row.addEventListener('dragstart', (ev) => {
+      state.dragSid = e.id;
+      ev.dataTransfer.setData('text/plain', e.id);
+      ev.dataTransfer.effectAllowed = 'move';
+      row.classList.add('drag');
+    });
+    row.addEventListener('dragend', () => {
+      state.dragSid = null;
+      row.classList.remove('drag');
+      clearDz();
+    });
+    const f = document.createElement('button');
+    f.className = 'f';
+    f.type = 'button';
+    f.title = e.fav ? '取消收藏' : '收藏此会话';
+    f.textContent = '★';
+    f.addEventListener('click', (ev) => {
+      ev.stopPropagation(); // 点星标只切收藏，不许顺手打开会话
+      toggleFav(e.id, !e.fav);
+    });
+    const col = document.createElement('div');
+    col.className = 'col';
+    const t = document.createElement('div');
+    t.className = 't';
+    t.textContent = e.title || e.id;
+    const ts = document.createElement('div');
+    ts.className = 'ts';
+    ts.textContent = fmtStamp(e.updated || e.created);
+    col.append(t, ts);
+    const d = document.createElement('span');
+    d.className = 'd';
+    const rn = document.createElement('button');
+    rn.className = 'r';
+    rn.type = 'button';
+    rn.title = '重命名会话';
+    rn.textContent = '✎';
+    rn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      askRename(e.id, e.title || e.id);
+    });
+    const x = document.createElement('button');
+    x.className = 'x';
+    x.type = 'button';
+    x.title = '删除会话';
+    x.textContent = '×';
+    x.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      askDelete(e.id, e.title || e.id);
+    });
+    row.append(f, col, d, rn, x);
+    row.addEventListener('click', () => openSession(e.id));
+    return row;
+  }
+
+  // 科目行：目录形态，永远排在会话列表最前；点它展开/收回（空科目展开显示「（空）」）
+  function buildFolder(s, members) {
+    const open = state.subOpen.has(s.id);
+    const f = document.createElement('div');
+    f.className = 'sub' + (open ? ' open' : '');
+    f.dataset.sub = s.id;
+    f.innerHTML =
+      '<span class="sc">▸</span><span class="fi"></span><span class="sn"></span>' +
+      (members.length ? '<span class="cn"></span>' : '') +
+      '<button class="sx" type="button" title="删除科目">×</button>';
+    f.querySelector('.sn').textContent = s.name;
+    const cn = f.querySelector('.cn');
+    if (cn) cn.textContent = String(members.length);
+    f.addEventListener('click', () => toggleSub(s.id));
+    f.querySelector('.sx').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      askDeleteSub(s);
+    });
+    const frag = document.createDocumentFragment();
+    frag.appendChild(f);
+    if (open) {
+      if (members.length) for (const e of members) frag.appendChild(buildRow(e, s.id));
+      else {
+        const empty = document.createElement('div');
+        empty.className = 'subempty';
+        empty.dataset.sub = s.id;
+        empty.textContent = '（空）把会话拖到这个科目上';
+        frag.appendChild(empty);
+      }
+    }
+    return frag;
+  }
+
   function renderList() {
     const box = $('#list');
     if (!box) return;
     const keep = box.scrollTop;
     box.innerHTML = '';
-    const rows = state.index.filter((e) => (state.filter === 'fav' ? e.fav : true));
-    if (!rows.length) {
+    const flat = state.filter === 'fav'; // 收藏视图不摆科目，只按星标平铺
+    const subs = flat ? [] : state.subjects;
+    const memberOf = new Map(subs.map((s) => [s.id, []]));
+    const loose = [];
+    for (const e of state.index) {
+      if (flat) {
+        if (e.fav) loose.push(e);
+        continue;
+      }
+      const bucket = memberOf.get(e.sub);
+      if (bucket) bucket.push(e);
+      else loose.push(e);
+    }
+    const nothing = flat ? !loose.length : !state.index.length && !subs.length;
+    if (nothing) {
       box.innerHTML = `<div class="empty">${
-        state.filter === 'fav'
+        flat
           ? '没有收藏的会话。<br>点行内 ★ 收藏，这里只留收藏的。'
           : '还没有搜题记录。<br>回网页按 Alt+S 截一道题。'
       }</div>`;
@@ -71,58 +192,51 @@
       updateComposer();
       return;
     }
-    for (const e of rows) {
-      const row = document.createElement('div');
-      row.className =
-        'row' + (e.fav ? ' fav' : '') + (e.id === state.sid ? ' active' : '') + (e.unread ? ' unread' : '');
-      row.dataset.sid = e.id;
-      const f = document.createElement('button');
-      f.className = 'f';
-      f.type = 'button';
-      f.title = e.fav ? '取消收藏' : '收藏此会话';
-      f.textContent = '★';
-      f.addEventListener('click', (ev) => {
-        ev.stopPropagation(); // 点星标只切收藏，不许顺手打开会话
-        toggleFav(e.id, !e.fav);
-      });
-      const col = document.createElement('div');
-      col.className = 'col';
-      const t = document.createElement('div');
-      t.className = 't';
-      t.textContent = e.title || e.id;
-      const ts = document.createElement('div');
-      ts.className = 'ts';
-      ts.textContent = fmtStamp(e.updated || e.created);
-      col.append(t, ts);
-      const d = document.createElement('span');
-      d.className = 'd';
-      const rn = document.createElement('button');
-      rn.className = 'r';
-      rn.type = 'button';
-      rn.title = '重命名会话';
-      rn.textContent = '✎';
-      rn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        askRename(e.id, e.title || e.id);
-      });
-      const x = document.createElement('button');
-      x.className = 'x';
-      x.type = 'button';
-      x.title = '删除会话';
-      x.textContent = '×';
-      x.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        askDelete(e.id, e.title || e.id);
-      });
-      row.append(f, col, d, rn, x);
-      row.addEventListener('click', () => openSession(e.id));
-      box.appendChild(row);
-    }
+    for (const s of subs) box.appendChild(buildFolder(s, memberOf.get(s.id) || []));
+    for (const e of loose) box.appendChild(buildRow(e, null));
     box.scrollTop = keep;
     renderTitle();
     renderFav();
     updateComposer();
   }
+
+  function toggleSub(id) {
+    if (state.subOpen.has(id)) state.subOpen.delete(id);
+    else state.subOpen.add(id);
+    try {
+      localStorage.setItem(KEY_SUBOPEN, JSON.stringify([...state.subOpen]));
+    } catch {
+      /* ignore */
+    }
+    renderList();
+  }
+
+  // ---- 拖放：拖到科目行/科目内部 = 归入该科目，拖到列表空白处 = 移出科目 ----
+  const listBox = $('#list');
+  function clearDz() {
+    listBox.querySelectorAll('.sub.dz').forEach((el) => el.classList.remove('dz'));
+  }
+  function dropSub(ev) {
+    const t = ev.target?.closest?.('.sub, .row.in, .subempty');
+    return t ? t.dataset.sub || null : null;
+  }
+  listBox.addEventListener('dragover', (ev) => {
+    if (!state.dragSid) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    clearDz();
+    const sub = dropSub(ev);
+    if (sub) listBox.querySelector(`.sub[data-sub="${sub}"]`)?.classList.add('dz');
+  });
+  listBox.addEventListener('drop', (ev) => {
+    if (!state.dragSid) return;
+    ev.preventDefault();
+    const sub = dropSub(ev);
+    const sid = state.dragSid;
+    state.dragSid = null;
+    clearDz();
+    if (sid) post({ type: 'subject', op: 'assign', sid, sub });
+  });
 
   function renderTitle() {
     const hit = state.index.find((e) => e.id === state.sid);
@@ -382,9 +496,18 @@
   $('#send').addEventListener('click', send);
 
   // ---------------------------------------------------------------- 删除 / 重命名（复制自抽屉）
+  // pendingDelete 分两种：{ kind:'sess' } 删会话、{ kind:'sub' } 删科目（会话只是移出，一个都不删）
   function askDelete(sid, title) {
-    state.pendingDelete = sid;
+    state.pendingDelete = { kind: 'sess', sid, title };
+    $('#confirmTitle').textContent = '删除这个会话？';
     $('#confirmName').textContent = title;
+    $('#confirm').classList.add('on');
+    $('#confirmYes').focus();
+  }
+  function askDeleteSub(sub) {
+    state.pendingDelete = { kind: 'sub', sid: sub.id, title: sub.name };
+    $('#confirmTitle').textContent = '删除这个科目？（里面的会话只是移出，不会删）';
+    $('#confirmName').textContent = sub.name;
     $('#confirm').classList.add('on');
     $('#confirmYes').focus();
   }
@@ -394,9 +517,11 @@
   }
   $('#confirmNo').addEventListener('click', closeConfirm);
   $('#confirmYes').addEventListener('click', () => {
-    const sid = state.pendingDelete;
+    const p = state.pendingDelete;
     closeConfirm();
-    if (sid) post({ type: 'delete', sid });
+    if (!p) return;
+    if (p.kind === 'sub') post({ type: 'subject', op: 'delete', sub: p.sid });
+    else post({ type: 'delete', sid: p.sid });
   });
   $('#confirm').addEventListener('click', (e) => {
     if (e.target === $('#confirm')) closeConfirm();
@@ -434,12 +559,44 @@
       closeRename();
     }
   });
+
+  // ---- 新建科目（列表顶部按钮 → 命名框，与重命名同一套模态交互） ----
+  function askNewSub() {
+    $('#subInput').value = '';
+    $('#subnew').classList.add('on');
+    $('#subInput').focus();
+  }
+  function closeNewSub() {
+    $('#subnew').classList.remove('on');
+  }
+  function commitNewSub() {
+    const name = ($('#subInput').value || '').trim();
+    closeNewSub();
+    if (name) post({ type: 'subject', op: 'create', name });
+  }
+  $('#newSub').addEventListener('click', askNewSub);
+  $('#subNo').addEventListener('click', closeNewSub);
+  $('#subYes').addEventListener('click', commitNewSub);
+  $('#subnew').addEventListener('click', (e) => {
+    if (e.target === $('#subnew')) closeNewSub();
+  });
+  $('#subInput').addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitNewSub();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeNewSub();
+    }
+  });
   window.addEventListener(
     'keydown',
     (e) => {
       if (e.key !== 'Escape') return;
       if (state.pendingDelete) closeConfirm();
       else if (state.pendingRename) closeRename();
+      else if ($('#subnew').classList.contains('on')) closeNewSub();
     },
     true,
   );
@@ -615,6 +772,10 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
+    if (changes[K_SUBJ]) {
+      state.subjects = changes[K_SUBJ].newValue || [];
+      renderList();
+    }
     if (changes[K_INDEX]) {
       state.index = changes[K_INDEX].newValue || [];
       // 当前会话被删了就顺位到第一条；全删光就进空态，别停在一行旧数据上
@@ -651,10 +812,16 @@
 
   // ---------------------------------------------------------------- 启动
   (async function boot() {
+    try {
+      state.subOpen = new Set(JSON.parse(localStorage.getItem(KEY_SUBOPEN) || '[]'));
+    } catch {
+      state.subOpen = new Set();
+    }
     connect();
     updateComposer();
-    const got = await chrome.storage.local.get(K_INDEX);
+    const got = await chrome.storage.local.get([K_INDEX, K_SUBJ]);
     state.index = got[K_INDEX] || [];
+    state.subjects = got[K_SUBJ] || [];
     renderList();
     const want = decodeURIComponent(location.hash.slice(1));
     const sid = state.index.some((e) => e.id === want) ? want : state.index[0]?.id;

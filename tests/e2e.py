@@ -1378,6 +1378,82 @@ def main():
                 t2 = rev.evaluate("() => (document.querySelector('#list .row:nth-child(2) .t') || {}).textContent || ''")
                 check("整页重命名生效（列表行同步）", t2 == "整页改名", t2)
 
+                # ---- 科目（目录形态）：新建 → 空科目弹（空）→ 拖会话进科目 → 拖出 → 删科目 ----
+                rev.click("#newSub")
+                rev.wait_for_timeout(300)
+                check(
+                    "整页点「新建科目」弹命名框",
+                    rev.evaluate("() => document.getElementById('subnew').classList.contains('on')"),
+                    "subnew modal",
+                )
+                rev.fill("#subInput", "高数")
+                rev.click("#subYes")
+                rev.wait_for_timeout(600)
+                n_sub = rev.evaluate("() => document.querySelectorAll('#list .sub').length")
+                sub_name = rev.evaluate("() => (document.querySelector('#list .sub .sn') || {}).textContent || ''")
+                check("命名后列表置顶出现科目行", n_sub == 1 and sub_name == "高数", f"n={n_sub} name={sub_name!r}")
+                subs_db = sw.evaluate(
+                    "async () => (await chrome.storage.local.get('spore.subjects'))['spore.subjects'] || []"
+                )
+                check("科目写进存储", len(subs_db) == 1 and subs_db[0].get("name") == "高数", subs_db)
+                check(
+                    "科目排在会话行之前",
+                    rev.evaluate(
+                        "() => !!document.querySelector('#list').firstElementChild.classList.contains('sub')"
+                    ),
+                    "first child is folder",
+                )
+
+                # 空科目：点一下弹出（空），再点收回，第三次展开准备接拖放
+                rev.click("#list .sub")
+                rev.wait_for_timeout(300)
+                sub_empty = rev.evaluate("() => (document.querySelector('#list .subempty') || {}).textContent || ''")
+                check("空科目展开显示（空）", "（空）" in sub_empty, sub_empty)
+                rows_in_sub = rev.evaluate("() => document.querySelectorAll('#list .row').length")
+                check("科目展开不吞会话行", rows_in_sub == 2, rows_in_sub)
+                rev.click("#list .sub")
+                rev.wait_for_timeout(300)
+                check(
+                    "再点科目收回",
+                    not rev.evaluate("() => document.querySelector('#list .sub').classList.contains('open')"),
+                    "collapsed",
+                )
+                rev.click("#list .sub")
+                rev.wait_for_timeout(300)
+
+                # 拖放（Playwright 走 CDP 真拖，dataTransfer 是真的）：第一条会话拖到科目行上
+                rev.drag_and_drop("#list .row >> nth=0", "#list .sub")
+                rev.wait_for_timeout(700)
+                in_n = rev.evaluate("() => document.querySelectorAll('#list .row.in').length")
+                total_n = rev.evaluate("() => document.querySelectorAll('#list .row').length")
+                check("拖进科目：会话归入目录且列表总数不变", in_n == 1 and total_n == 2, f"in={in_n} total={total_n}")
+                sub_owned = sw.evaluate(
+                    "async () => { const i = (await chrome.storage.local.get('spore.index'))['spore.index'] || [];"
+                    " return i.filter(e => e.sub).length }"
+                )
+                check("拖进科目：归属落进索引", sub_owned == 1, sub_owned)
+                cnt = rev.evaluate("() => (document.querySelector('#list .sub .cn') || {}).textContent || ''")
+                check("科目行标出会话数", cnt == "1", cnt)
+
+                # 拖到科目外面的会话行 = 移出科目（空白区没有独立元素，落点用同级行判定）
+                rev.drag_and_drop("#list .row.in", "#list .row:not(.in)")
+                rev.wait_for_timeout(700)
+                in_back = rev.evaluate("() => document.querySelectorAll('#list .row.in').length")
+                check("拖到科目外 = 移出科目", in_back == 0, in_back)
+
+                # 删科目：只摘目录，会话一条不删（回到跑本段之前的平铺状态）
+                rev.hover("#list .sub")
+                rev.click("#list .sub .sx")
+                rev.wait_for_timeout(300)
+                ctitle = rev.evaluate("() => (document.getElementById('confirmTitle') || {}).textContent || ''")
+                check("点科目 × 弹删除确认且口径是科目", "科目" in ctitle, ctitle)
+                rev.click("#confirmYes")
+                rev.wait_for_timeout(600)
+                left_subs = rev.evaluate("() => document.querySelectorAll('#list .sub').length")
+                left_rows = rev.evaluate("() => document.querySelectorAll('#list .row').length")
+                check("删科目后目录消失、会话原样留下", left_subs == 0 and left_rows == 2, f"subs={left_subs} rows={left_rows}")
+                rev.screenshot(path=str(SHOTS / "12-review-subjects.png"))
+
                 # ---- 底部输入框也迁进整页：关掉自动核实省一次联网核实，发一句追问 ----
                 opt.click('.idx a[data-sec="model"]')
                 opt.wait_for_timeout(300)
