@@ -107,12 +107,13 @@
         flex: none; font-size: 11px; color: #a3a8c2; background: #fff;
         border: 1px solid #e9ecf6; border-radius: 99px; padding: 0 6px;
       }
-      .sub .sx {
+      .sub .sr, .sub .sx {
         flex: none; border: 0; background: transparent; cursor: pointer; opacity: 0;
         font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 7px; color: #7b81a0;
         transition: opacity 0.15s, background 0.15s, color 0.15s;
       }
-      .sub:hover .sx { opacity: 1 }
+      .sub:hover .sr, .sub:hover .sx { opacity: 1 }
+      .sub .sr:hover { background: #eef1fa; color: var(--accent) }
       .sub .sx:hover { background: #fdecef; color: #d02747 }
       .subempty { padding: 6px 10px 10px 32px; font-size: 12.5px; color: #a3a8c2 }
       /* 科目里的会话：缩进 + 左侧引导线；拖动中的行淡出 */
@@ -325,7 +326,7 @@
     </div>
     <div id="rename">
       <div class="box">
-        <div class="ct">重命名会话</div>
+        <div class="ct" id="renameTitle">重命名会话</div>
         <input id="renameInput" type="text" spellcheck="false" />
         <div class="acts">
           <button class="cno" id="renameNo" type="button">取消</button>

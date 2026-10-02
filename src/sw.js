@@ -422,6 +422,9 @@ async function handleContent(msg, port) {
       } else if (msg.op === 'assign') {
         await store.assignSubject(msg.sid, msg.sub || null);
         store.logEvent(`subject assign → sid=${msg.sid} sub=${msg.sub || '-'}`);
+      } else if (msg.op === 'rename') {
+        const saved = await store.renameSubject(msg.sub, msg.name);
+        store.logEvent(`subject rename → id=${msg.sub} "${saved || ''}"`);
       } else if (msg.op === 'delete') {
         await store.deleteSubject(msg.sub);
         store.logEvent(`subject delete → id=${msg.sub}`);

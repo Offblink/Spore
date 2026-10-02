@@ -298,6 +298,18 @@ export async function deleteSubject(id) {
   await setIndex((idx) => idx.map((e) => (e.sub === id ? { ...e, sub: null } : e)));
 }
 
+/** 重命名科目：只改名，不动成员 */
+export async function renameSubject(id, name) {
+  const clean = String(name || '').trim().slice(0, 40);
+  if (!clean) return null;
+  const list = await listSubjects();
+  const hit = list.find((s) => s.id === id);
+  if (!hit) return null;
+  hit.name = clean;
+  await chrome.storage.local.set({ [K_SUBJ]: list });
+  return clean;
+}
+
 /** 会话归类：sub 为 null 就是移出科目。归属只写索引，不动会话正文。 */
 export async function assignSubject(sid, sub) {
   await patchIndex(sid, { sub: sub || null });

@@ -1435,6 +1435,28 @@ def main():
                 cnt = rev.evaluate("() => (document.querySelector('#list .sub .cn') || {}).textContent || ''")
                 check("科目行标出会话数", cnt == "1", cnt)
 
+                # ---- 科目重命名：同一个模态，标题口径换成科目 ----
+                rev.hover("#list .sub")
+                rev.click("#list .sub .sr")
+                rev.wait_for_timeout(300)
+                check(
+                    "点科目 ✎ 弹重命名框且口径是科目",
+                    rev.evaluate("() => document.getElementById('rename').classList.contains('on')")
+                    and "科目" in rev.evaluate("() => (document.getElementById('renameTitle') || {}).textContent || ''"),
+                    rev.evaluate("() => (document.getElementById('renameTitle') || {}).textContent || ''"),
+                )
+                rev.fill("#renameInput", "高等数学")
+                rev.click("#renameYes")
+                rev.wait_for_timeout(500)
+                sub_renamed = rev.evaluate("() => (document.querySelector('#list .sub .sn') || {}).textContent || ''")
+                check("科目重命名生效（列表行同步）", sub_renamed == "高等数学", sub_renamed)
+                subs_db2 = sw.evaluate(
+                    "async () => (await chrome.storage.local.get('spore.subjects'))['spore.subjects'] || []"
+                )
+                check("科目重命名落存储", len(subs_db2) == 1 and subs_db2[0].get("name") == "高等数学", subs_db2)
+                still_in = rev.evaluate("() => document.querySelectorAll('#list .row.in').length")
+                check("重命名不动成员归属", still_in == 1, still_in)
+
                 # 拖到科目外面的会话行 = 移出科目（空白区没有独立元素，落点用同级行判定）
                 rev.drag_and_drop("#list .row.in", "#list .row:not(.in)")
                 rev.wait_for_timeout(700)

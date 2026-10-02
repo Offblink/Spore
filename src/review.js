@@ -138,11 +138,16 @@
     f.innerHTML =
       '<span class="sc">▸</span><span class="fi"></span><span class="sn"></span>' +
       (members.length ? '<span class="cn"></span>' : '') +
+      '<button class="sr" type="button" title="重命名科目">✎</button>' +
       '<button class="sx" type="button" title="删除科目">×</button>';
     f.querySelector('.sn').textContent = s.name;
     const cn = f.querySelector('.cn');
     if (cn) cn.textContent = String(members.length);
     f.addEventListener('click', () => toggleSub(s.id));
+    f.querySelector('.sr').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      askRenameSub(s);
+    });
     f.querySelector('.sx').addEventListener('click', (ev) => {
       ev.stopPropagation();
       askDeleteSub(s);
@@ -527,9 +532,19 @@
     if (e.target === $('#confirm')) closeConfirm();
   });
 
+  // pendingRename 分两种：{ kind:'sess' } 会话、{ kind:'sub' } 科目（同一个模态，标题口径跟着换）
   function askRename(sid, title) {
-    state.pendingRename = sid;
+    state.pendingRename = { kind: 'sess', sid, title };
+    $('#renameTitle').textContent = '重命名会话';
     $('#renameInput').value = title || '';
+    $('#rename').classList.add('on');
+    $('#renameInput').focus();
+    $('#renameInput').select();
+  }
+  function askRenameSub(sub) {
+    state.pendingRename = { kind: 'sub', sid: sub.id, title: sub.name };
+    $('#renameTitle').textContent = '重命名科目';
+    $('#renameInput').value = sub.name || '';
     $('#rename').classList.add('on');
     $('#renameInput').focus();
     $('#renameInput').select();
@@ -539,10 +554,12 @@
     $('#rename').classList.remove('on');
   }
   function commitRename() {
-    const sid = state.pendingRename;
+    const p = state.pendingRename;
     const title = ($('#renameInput').value || '').trim();
     closeRename();
-    if (sid && title) post({ type: 'rename', sid, title });
+    if (!p || !title) return;
+    if (p.kind === 'sub') post({ type: 'subject', op: 'rename', sub: p.sid, name: title });
+    else post({ type: 'rename', sid: p.sid, title });
   }
   $('#renameNo').addEventListener('click', closeRename);
   $('#renameYes').addEventListener('click', commitRename);
