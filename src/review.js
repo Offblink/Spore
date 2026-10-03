@@ -474,6 +474,7 @@
     const busy = !state.sid || state.streaming;
     input.disabled = busy;
     $('#send').disabled = busy;
+    $('#stop').hidden = !state.streaming;
     input.placeholder = state.streaming
       ? '回答生成中…'
       : state.sid
@@ -502,6 +503,12 @@
     }
   });
   $('#send').addEventListener('click', send);
+  // 停止生成：与抽屉顶栏 ■ 同一条协议（SW stopTurn → AbortController.abort），
+  // 中止后 SW 把 status 落成 aborted，storage.onChanged → syncBusy() 自然收起本按钮
+  $('#stop').addEventListener('click', () => {
+    if (!state.sid || !state.streaming) return;
+    post({ type: 'stop', sid: state.sid });
+  });
 
   // ---------------------------------------------------------------- 删除 / 重命名（复制自抽屉）
   // pendingDelete 分两种：{ kind:'sess' } 删会话、{ kind:'sub' } 删科目（会话只是移出，一个都不删）

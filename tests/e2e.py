@@ -1511,6 +1511,58 @@ def main():
                 )
                 check("用完把自动核实恢复为开", saved_av is True, repr(saved_av))
 
+                # ---- 停止生成按钮（整页 composer）：空闲收起 → 生成中出现 → 点掉即中止 ----
+                check(
+                    "空闲时停止按钮收起",
+                    rev.evaluate("() => document.getElementById('stop').hidden"),
+                    "hidden",
+                )
+                rev.fill("#input", "整页停止测试：请写一段不少于三百字的详细说明，慢慢写")
+                rev.keyboard.press("Enter")
+                guard(
+                    rev,
+                    "等停止按钮出现",
+                    lambda: rev.wait_for_selector("#stop", state="visible", timeout=60000),
+                )
+                stop_shown = rev.evaluate("() => !document.getElementById('stop').hidden")
+                check(
+                    "整页生成中出现「停止生成」按钮且输入框禁用",
+                    stop_shown and rev.evaluate("() => document.getElementById('input').disabled"),
+                    f"stop={stop_shown}",
+                )
+                if stop_shown:
+                    rev.screenshot(path=str(SHOTS / "13-review-stop.png"))  # 按钮亮着的现场
+                    rev.click("#stop")
+                    guard(
+                        rev,
+                        "等停止后输入框恢复",
+                        lambda: rev.wait_for_function(
+                            "() => !document.getElementById('input').disabled", timeout=60000
+                        ),
+                    )
+                check(
+                    "点停止后回合中止、输入框恢复可用",
+                    rev.evaluate("() => !document.getElementById('input').disabled"),
+                    "composer enabled",
+                )
+                stop_sid = rev.evaluate(
+                    "() => (document.querySelector('#list .row.active') || {}).dataset?.sid || null"
+                )
+                stop_st = rev.evaluate(
+                    """async (sid) => {
+                        const o = await chrome.storage.local.get('spore.sess.' + sid);
+                        return (o['spore.sess.' + sid] || {}).status || null;
+                    }""",
+                    stop_sid,
+                )
+                check("停止落存储：status=aborted", stop_st == "aborted", repr(stop_st))
+                check(
+                    "停止后按钮收起",
+                    rev.evaluate("() => document.getElementById('stop').hidden"),
+                    "hidden",
+                )
+                rev.screenshot(path=str(SHOTS / "14-review-stopped.png"))
+
                 rev.goto(rev.url.split("#")[0] + f"#{other_id}")
                 rev.wait_for_timeout(600)
                 a2 = rev.evaluate(

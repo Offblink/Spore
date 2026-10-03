@@ -135,6 +135,12 @@ Fungi 是「贴底就跟随，上滑就锁定」。本项目按需求改成：**
 | 顺带发现：bfcache 之后抽屉的端口**再也不重连**（探针实测 SW 侧端口数掉到 0），抽屉从此收不到流式事件 | 原实现只靠 `onDisconnect → setTimeout(connect)`，而文档进 bfcache 后是被冻结的，回调/定时器都可能不跑。修法四件套（`drawer.js` 与 `review.js` 同构）：① `pagehide` 主动 `port.disconnect()`；② `pageshow(e.persisted)` 主动 `connect()`；③ `suspended` 标志 —— pagehide 到 pageshow 之间 `post()`/`connect()` 一律直接 return，否则**垂死文档里补开的口会变成 SW 永远关不掉的孤儿端口**（探针实测过：不加就攒到 2 个/页）；④ `onDisconnect` 里 `if (port !== p) return` —— 晚到的旧口断连回调不许把刚建好的新口踢掉 |
 | **复现/验收口径**（不进 e2e 门禁，e2e 不测 bfcache） | 回归脚本：**`python tests/bfcache.py`**（独立 profile、端口 8898，8 条判据，约 15s；本仓实测：带修复全绿 exit 0，`git stash` 摘掉修复后 4 条 FAIL exit 1）。Playwright 默认带 `--disable-back-forward-cache`，不摘掉就永远复现不出来：`launch_persistent_context(..., ignore_default_args=["--disable-back-forward-cache"])`，再用 `page.goto(另一页) → page.go_back(wait_until="commit")`（**必须 `commit`**：bfcache 恢复不触发 `load`，默认 `load` 会挂到超时）。判据三条：往返后 SW `__spore.ports()` 仍是 1 个/页（无孤儿）、`spore.log` 里有 `port 断开 tab=…：The page keeping…`（原因被消费且留痕）、bfcache 前后各发一次 `ask` 都能收到 `settleTurn` 广播的 toast（**toast 只走端口，storage 里没有等价信号**，所以它能证明 SW→页面这条方向真的通；探针里 `ask` 只走纯文本追问分支，空 key → 401 → `failTurn`，不依赖模型出字） |
 
+## 六g、第六轮反馈（2026-10-03）
+
+| 反馈 | 落地 |
+|---|---|
+| 「mv3 的搜题记录页面少了停止生成按钮」 | 抽屉顶栏一直有 `■`（`post({type:'stop'})` → SW `stopTurn()` → `AbortController.abort()`），整页 `review.html` 却只有**禁用的输入框 + 「回答生成中…」占位**，回合跑起来没有任何出口（追问一发就只能干等）。修法是**纯复制、不碰抽屉**：① `review.html` 的 `#composer` 在 `#send` 后面加 `<button id="stop" hidden>■ 停止生成</button>`（白底红边 `#d02747`，与删除 `×` 的悬停同色），`#stop[hidden]{display:none}`；② `review.js` 的 `updateComposer()` 里 `$('#stop').hidden = !state.streaming` —— 与 `input.disabled` **同一个状态源**（忙以存储 `status` 三态为准，端口 `chat-start`/`answer-start` 只让它更快），所以不会出现「按钮亮着但其实早停了」；③ 点击发 `stop`，SW 落 `aborted` 后 `storage.onChanged → syncBusy()` 自然收起按钮并解锁输入框，两条收尾路径（端口 `turn-end` 与存储 `status`）互为兜底。e2e 加 5 条断言：空闲收起 / 生成中出现且输入框禁用 / 点掉后输入框恢复 / `status=aborted` / 停止后按钮收起（176 → 181） |
+
 ## 七、增量实现与验证
 
 1. P1 骨架与检索：manifest、`llm.js`、`tools.js`、`store.js` —— 四个模块 node 语法/链接检查通过。

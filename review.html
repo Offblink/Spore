@@ -231,6 +231,15 @@
       }
       #send:hover { background: var(--accent2); transform: translateY(-1px) }
       #send:disabled { background: #e6e8f2; color: #a3a8c2; cursor: default; transform: none }
+      /* 生成中才有：出现即收起输入框那格的「回答生成中…」死局（抽屉顶栏 ■ 的整页版） */
+      #stop {
+        flex: none; height: 40px; padding: 0 14px; border-radius: 12px;
+        border: 1px solid #f3c2cc; background: #fff; color: #d02747;
+        cursor: pointer; font: 600 14px/1 inherit;
+        transition: background 0.15s, border-color 0.15s;
+      }
+      #stop:hover { background: #fff1f3; border-color: #e88a9c }
+      #stop[hidden] { display: none }
 
       /* ---- 删除确认 / 重命名：整页居中模态（抽屉里那两个的复制品） ---- */
       #confirm, #rename, #subnew {
@@ -310,6 +319,7 @@
         <div id="composer">
           <textarea id="input" rows="1" placeholder="接着问…（Enter 发送，Shift+Enter 换行）"></textarea>
           <button id="send" type="button" title="发送">↑</button>
+          <button id="stop" type="button" title="停止生成" hidden>■ 停止生成</button>
         </div>
       </main>
     </div>
