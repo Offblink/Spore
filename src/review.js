@@ -24,7 +24,20 @@
     pendingDelete: null,
     pendingRename: null,
     dragSid: null, // 正被拖动的会话 id
+    selecting: false, // 多选模式（长按进；sel class 挂在 #list 上，底栏 #batchbar 随之浮出）
+    selected: new Set(), // 选中的会话 id（renderList 重绘时按它回放 .on）
+    pendingPick: null, // 移入科目弹层的目标会话 id 数组（null = 弹层关着）
   };
+  // 多选手势（照移动端 record.js 移植）：长按 500ms 进模式；单选框起笔涂抹连选
+  const HOLD_MS = 500; // 长按进多选的判定时长
+  const SLOP = 10; // px：超过就算「动了」（滚动/拖拽），不算长按
+  let suppressClick = false; // 长按进模式或涂抹收笔后的那次 click 要吃掉
+  let holdTimer = 0; // 长按定时器（0 = 没挂着）
+  let holdRow = null; // 长按落点卡
+  let holdX = 0;
+  let holdY = 0;
+  let held = false; // 本笔长按已触发（收笔的 click 要吃掉）
+  let paint = null; // 本笔涂抹 {seg, prev, dx, dir, moved}
   // 历史会反复重绘（回合内 1.2s 落盘一次），图片按 key 缓存，别每次都去 storage 捞几百 KB
   const imgCache = new Map();
   let port = null;
@@ -89,6 +102,12 @@
       row.classList.remove('drag');
       clearDz();
     });
+    const ck = document.createElement('span');
+    ck.className = 'ck';
+    ck.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M5 13l4 4 10-10"/></svg>';
     const f = document.createElement('button');
     f.className = 'f';
     f.type = 'button';
@@ -127,8 +146,9 @@
       ev.stopPropagation();
       askDelete(e.id, e.title || e.id);
     });
-    row.append(f, col, d, rn, x);
-    row.addEventListener('click', () => openSession(e.id));
+    if (state.selected.has(e.id)) row.classList.add('on');
+    row.append(ck, f, col, d, rn, x);
+    // 行点击走 #list 上的统一委托（多选模式里要吃 suppressClick、改勾选不打开会话）
     return row;
   }
 
@@ -173,6 +193,13 @@
   function renderList() {
     const box = $('#list');
     if (!box) return;
+    // 选中集按现有会话裁剪：删掉的/不在库里的不再算选中；裁空就直接退多选
+    //（storage.onChanged 的重绘也走这条路，同一口径）
+    if (state.selecting) {
+      const valid = new Set(state.index.map((e) => e.id));
+      for (const id of [...state.selected]) if (!valid.has(id)) state.selected.delete(id);
+      if (!state.selected.size) setSelecting(false);
+    }
     const keep = box.scrollTop;
     box.innerHTML = '';
     const flat = state.filter === 'fav'; // 收藏视图不摆科目，只按星标平铺
@@ -206,6 +233,62 @@
     renderTitle();
     renderFav();
     updateComposer();
+  }
+
+  // ---------------------------------------------------------------- 多选模式（进/退、单卡勾选）
+
+  function setSelecting(on) {
+    state.selecting = on;
+    if (!on) {
+      state.selected.clear();
+      // 退出即把 DOM 上的 .on 清干净：选中集已空，别等下一次重绘才摘残影
+      for (const r of rowsArr()) r.classList.remove('on');
+    }
+    $('#list').classList.toggle('sel', on);
+    const bar = $('#batchbar');
+    if (bar) bar.hidden = !on;
+    syncSelChrome();
+  }
+
+  /** 底栏计数与可用性随选中集实时同步（选中 0 个时三个操作禁用） */
+  function syncSelChrome() {
+    const n = state.selected.size;
+    const c = $('#selCount');
+    if (c) c.textContent = `已选 ${n} 项`;
+    for (const id of ['bFav', 'bMove', 'bDel']) {
+      const el = document.getElementById(id);
+      if (el) el.disabled = n === 0;
+    }
+  }
+
+  function rowsArr() {
+    return [...document.querySelectorAll('#list .row')];
+  }
+
+  function rowUnder(x, y) {
+    const el = document.elementFromPoint(x, y);
+    return el ? el.closest('.row') : null;
+  }
+
+  /** 单卡勾选：改集合 + 只刷这一格的 .on（不起整列表重绘，滚动位置不丢） */
+  function setRowSel(sid, on) {
+    if (on === state.selected.has(sid)) return;
+    if (on) state.selected.add(sid);
+    else state.selected.delete(sid);
+    const el = rowsArr().find((r) => r.dataset.sid === sid);
+    if (el) el.classList.toggle('on', on);
+    syncSelChrome();
+  }
+
+  /** 当前段起点 ↔ 笔尖卡 之间整段落选中/取消（段内重放，幂等） */
+  function paintRange(toIdx) {
+    const arr = rowsArr();
+    const a = Math.min(paint.seg, toIdx);
+    const b = Math.max(paint.seg, toIdx);
+    for (let i = a; i <= b; i++) {
+      const el = arr[i];
+      if (el) setRowSel(el.dataset.sid, paint.dir);
+    }
   }
 
   function toggleSub(id) {
@@ -245,6 +328,119 @@
     clearDz();
     if (sid) post({ type: 'subject', op: 'assign', sid, sub });
   });
+
+  // ---- 行点击统一委托：suppressClick 优先；多选模式里点卡片 = 勾选（不打开会话）----
+  listBox.addEventListener('click', (e) => {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
+    const row = e.target.closest('.row');
+    if (!row) return;
+    if (state.selecting) {
+      setRowSel(row.dataset.sid, !state.selected.has(row.dataset.sid));
+      return;
+    }
+    openSession(row.dataset.sid);
+  });
+
+  // ---- 多选手势（照移动端 record.js 移植）：长按进模式；单选框起笔涂抹 ----
+  // 语义：从某个单选框开始拖 = 涂抹，选中「段起点 → 笔尖所在卡」之间全部；起笔卡已选 →
+  // 本笔先取消；中途折返即换向（方向翻转、新段从拐点起算）。卡片其余区域的拖动留给
+  // 滚动/拖科目；.ck 上的 pointerdown 必须 preventDefault —— 行是 draggable，不拦会触发 dragstart。
+  listBox.addEventListener('pointerdown', (e) => {
+    if (!e.isPrimary) return; // 多指只认主指
+    suppressClick = false;
+    const row = e.target.closest('.row');
+    if (!row) return;
+    if (e.target.closest('.ck') && state.selecting) {
+      // 涂抹起笔：首段方向看起笔格（起在已选上 = 本笔先取消）；seg = 起笔格
+      const idx = rowsArr().indexOf(row);
+      paint = { seg: idx, prev: idx, dx: 0, dir: !state.selected.has(row.dataset.sid), moved: false };
+      e.preventDefault();
+      return;
+    }
+    if (state.selecting) return; // 模式里卡片区域：点选交给 click，拖动留给滚动/拖科目
+    // 非模式：挂长按（越过 slop 即撤，别把滚动/拖拽误判成长按）
+    holdRow = row;
+    holdX = e.clientX;
+    holdY = e.clientY;
+    held = false;
+    holdTimer = setTimeout(() => {
+      holdTimer = 0;
+      held = true;
+      setSelecting(true);
+      setRowSel(row.dataset.sid, true);
+      holdRow = null;
+    }, HOLD_MS);
+  });
+
+  listBox.addEventListener('pointermove', (e) => {
+    if (!e.isPrimary) return;
+    if (holdTimer) {
+      const dx = e.clientX - holdX;
+      const dy = e.clientY - holdY;
+      if (dx * dx + dy * dy > SLOP * SLOP) {
+        clearTimeout(holdTimer);
+        holdTimer = 0;
+        holdRow = null; // 动了 = 滚动/拖拽手势，长按作废
+      }
+      return;
+    }
+    if (paint && state.selecting) {
+      const over = rowUnder(e.clientX, e.clientY);
+      if (over) {
+        const idx = rowsArr().indexOf(over);
+        if (idx >= 0 && idx !== paint.prev) {
+          const d = idx > paint.prev ? 1 : -1;
+          if (paint.dx && d !== paint.dx) {
+            // 中途换向：方向翻转，新段从拐点（上一格）起算
+            paint.dir = !paint.dir;
+            paint.seg = paint.prev;
+          }
+          paint.dx = d;
+          paint.prev = idx;
+          paint.moved = true;
+          paintRange(idx);
+        }
+      }
+      e.preventDefault();
+    }
+  });
+
+  function endStroke() {
+    if (holdTimer) {
+      clearTimeout(holdTimer);
+      holdTimer = 0;
+      holdRow = null;
+    }
+    if (paint) {
+      if (paint.moved) {
+        suppressClick = true; // 涂抹收笔那下别再触发 click
+      } else {
+        // 单选框上的轻点（没动）：就地翻选，吃掉随后的 click 防双翻
+        const row = rowsArr()[paint.seg];
+        if (row) setRowSel(row.dataset.sid, !state.selected.has(row.dataset.sid));
+        suppressClick = true;
+      }
+      paint = null;
+    }
+    if (held) {
+      suppressClick = true; // 长按进模式的那笔，收尾 click 不能把刚勾上的又翻回去
+      held = false;
+    }
+  }
+
+  listBox.addEventListener('pointerup', (e) => {
+    if (e.isPrimary) endStroke();
+  });
+  listBox.addEventListener('pointercancel', (e) => {
+    if (e.isPrimary) {
+      endStroke();
+      suppressClick = false; // cancel 后没有 click，别把标志留给下一笔
+    }
+  });
+  listBox.addEventListener('contextmenu', (e) => e.preventDefault()); // 长按不弹右键/文字选择菜单
 
   function renderTitle() {
     const hit = state.index.find((e) => e.id === state.sid);
@@ -536,7 +732,11 @@
     closeConfirm();
     if (!p) return;
     if (p.kind === 'sub') post({ type: 'subject', op: 'delete', sub: p.sid });
-    else post({ type: 'delete', sid: p.sid });
+    else if (p.kind === 'batch') {
+      // 批量删除：把选中集抄出来逐条走同一座协议，成功即退多选
+      for (const sid of p.sids) post({ type: 'delete', sid });
+      setSelecting(false);
+    } else post({ type: 'delete', sid: p.sid });
   });
   $('#confirm').addEventListener('click', (e) => {
     if (e.target === $('#confirm')) closeConfirm();
@@ -617,6 +817,83 @@
       closeNewSub();
     }
   });
+
+  // ---- 多选批量操作（底栏）：全走已有 post 协议，批量收藏只弹一条 toast ----
+  $('#selCancel').addEventListener('click', () => setSelecting(false));
+
+  /** 批量收藏：全已收藏 → 这次统一取消；否则把没收藏的都收上（单条 toggleFav 会 N 连弹，不能复用） */
+  $('#bFav').addEventListener('click', () => {
+    const sel = state.index.filter((s) => state.selected.has(s.id));
+    if (!sel.length) return;
+    const toFav = sel.some((s) => !s.fav);
+    let n = 0;
+    for (const s of sel) {
+      if (!!s.fav === toFav) continue; // 已是目标状态，别再翻
+      post({ type: 'favorite', sid: s.id, fav: toFav });
+      s.fav = toFav; // 乐观更新：SW 改完存储会再广播，这里不等回执
+      n += 1;
+    }
+    showToast({
+      title: n ? (toFav ? `已收藏 ${n} 条` : `已取消收藏 ${n} 条`) : '操作失败',
+      text: n ? `共选中 ${sel.length} 条` : '',
+    });
+    renderList();
+  });
+
+  $('#bMove').addEventListener('click', () => {
+    if (state.selected.size) openPicker([...state.selected]);
+  });
+
+  /** 批量删除：确认框带条数，确定后逐条走 delete 协议、成功即退多选 */
+  $('#bDel').addEventListener('click', () => {
+    const n = state.selected.size;
+    if (!n) return;
+    state.pendingDelete = { kind: 'batch', sids: [...state.selected] };
+    $('#confirmTitle').textContent = '删除会话';
+    $('#confirmName').textContent = `确定删除选中的 ${n} 条会话吗？截图、回答与思考记录会一并删除，不可恢复。`;
+    $('#confirm').classList.add('on');
+    $('#confirmYes').focus();
+  });
+
+  // ---- 移入科目（移动端 openPicker 对应物）：列全部科目 + 「移出科目」，只发 assign ----
+  function openPicker(ids) {
+    state.pendingPick = ids;
+    $('#pickTitle').textContent = ids.length > 1 ? `移入科目（${ids.length} 条）` : '移入科目';
+    renderPickList();
+    $('#subpick').classList.add('on');
+  }
+  function closePicker() {
+    state.pendingPick = null;
+    $('#subpick').classList.remove('on');
+  }
+  function renderPickList() {
+    // 多条同科目才亮「当前」；科目不一致（mixed）则不亮任何行
+    const subs = (state.pendingPick || []).map(
+      (id) => (state.index.find((x) => x.id === id) || {}).sub || '',
+    );
+    const mixed = new Set(subs).size > 1;
+    const cur = mixed ? '' : subs[0] || '';
+    const rows = ['<button class="prow none" data-sub="" type="button">移出科目</button>'];
+    for (const s of state.subjects) {
+      rows.push(
+        `<button class="prow${!mixed && cur === s.id ? ' on' : ''}" data-sub="${esc(s.id)}" ` +
+          `type="button">${esc(s.name)}</button>`,
+      );
+    }
+    $('#pickList').innerHTML = rows.join('');
+  }
+  $('#pickList').addEventListener('click', (e) => {
+    const b = e.target.closest('.prow');
+    const ids = state.pendingPick;
+    if (!b || !ids || !ids.length) return;
+    const sub = b.dataset.sub || null;
+    for (const sid of ids) post({ type: 'subject', op: 'assign', sid, sub });
+    closePicker();
+  });
+  $('#pickNo').addEventListener('click', closePicker);
+  $('#subpick').addEventListener('click', (e) => {
+    if (e.target === $('#subpick')) closePicker();
+  });
   window.addEventListener(
     'keydown',
     (e) => {
@@ -624,6 +901,8 @@
       if (state.pendingDelete) closeConfirm();
       else if (state.pendingRename) closeRename();
       else if ($('#subnew').classList.contains('on')) closeNewSub();
+      else if ($('#subpick').classList.contains('on')) closePicker();
+      else if (state.selecting) setSelecting(false); // 模态优先，多选排在其后
     },
     true,
   );
@@ -802,6 +1081,7 @@
   // ---------------------------------------------------------------- 交互
   document.querySelectorAll('.seg-b').forEach((b) =>
     b.addEventListener('click', () => {
+      if (state.selecting) setSelecting(false); // 换筛选（全部/收藏）先退多选：选中集要跟着视图走
       state.filter = b.dataset.filter;
       document.querySelectorAll('.seg-b').forEach((x) => x.classList.toggle('on', x === b));
       renderList();

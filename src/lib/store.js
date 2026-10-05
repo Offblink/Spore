@@ -95,12 +95,23 @@ export async function listSessions() {
   return got[K_INDEX] || [];
 }
 
+/** 索引写入链：setIndex 的临界区排队用（见 setIndex 注释） */
+let indexLock = Promise.resolve();
+
 async function setIndex(mutate) {
-  const got = await chrome.storage.local.get(K_INDEX);
-  const index = got[K_INDEX] || [];
-  const next = await mutate(index.slice());
-  await chrome.storage.local.set({ [K_INDEX]: next });
-  return next;
+  // 串行化读改写临界区：本函数是 get → mutate → set，而 SW 的 handleContent 不 await、
+  // 整页多选的批量操作（批量收藏/移入/删除）会把多条消息背靠背发进来 —— 两条消息的 get
+  // 读到同一份旧快照，后一条的 set 就把前一条的改动盖掉了（实测批量两条必丢一条）。
+  // 用一条 Promise 链把临界区排队，后续调用等前一次写完再读。
+  const run = indexLock.then(async () => {
+    const got = await chrome.storage.local.get(K_INDEX);
+    const index = got[K_INDEX] || [];
+    const next = await mutate(index.slice());
+    await chrome.storage.local.set({ [K_INDEX]: next });
+    return next;
+  });
+  indexLock = run.catch(() => {}); // 失败不锁链：下一次照常排队，错误照常抛给本次调用方
+  return run;
 }
 
 /**

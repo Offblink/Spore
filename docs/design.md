@@ -141,6 +141,12 @@ Fungi 是「贴底就跟随，上滑就锁定」。本项目按需求改成：**
 |---|---|
 | 「mv3 的搜题记录页面少了停止生成按钮」 | 抽屉顶栏一直有 `■`（`post({type:'stop'})` → SW `stopTurn()` → `AbortController.abort()`），整页 `review.html` 却只有**禁用的输入框 + 「回答生成中…」占位**，回合跑起来没有任何出口（追问一发就只能干等）。修法是**纯复制、不碰抽屉**：① `review.html` 的 `#composer` 在 `#send` 后面加 `<button id="stop" hidden>■ 停止生成</button>`（白底红边 `#d02747`，与删除 `×` 的悬停同色），`#stop[hidden]{display:none}`；② `review.js` 的 `updateComposer()` 里 `$('#stop').hidden = !state.streaming` —— 与 `input.disabled` **同一个状态源**（忙以存储 `status` 三态为准，端口 `chat-start`/`answer-start` 只让它更快），所以不会出现「按钮亮着但其实早停了」；③ 点击发 `stop`，SW 落 `aborted` 后 `storage.onChanged → syncBusy()` 自然收起按钮并解锁输入框，两条收尾路径（端口 `turn-end` 与存储 `status`）互为兜底。e2e 加 5 条断言：空闲收起 / 生成中出现且输入框禁用 / 点掉后输入框恢复 / `status=aborted` / 停止后按钮收起（176 → 181） |
 
+## 六h、第七轮反馈（2026-10-05）
+
+| 反馈 | 落地 |
+|---|---|
+| 「整页搜题记录加涂抹多选，完全参照移动端实现（多选 + 批量收藏/移入科目/删除）」 | 参照本机已 clone 的 Spore-Mobile `record.js`（1-450 行）移植进 `src/review.js` + `review.html`。**手势语义逐条对齐**：长按 500ms 进模式（10px slop 越过即撤销，选中被按那张卡、收尾 click 被 `suppressClick` 吃掉）；涂抹只认单选框 `.ck` 起笔（`.ck` 排行首、仅模式显示，`pointerdown` 必须 `preventDefault` —— 行是 `draggable`，不拦就触发 `dragstart`），卡片其余区域的拖动仍留给滚动/拖科目；起笔在已选卡上 = 本笔先取消，中途折返 = 方向翻转、新段从拐点起算；模式内单击卡片 = 勾选（行点击从逐行监听改成 `#list` 上的统一委托，`suppressClick` 才有统一消费点）；选中集 `selected` 每次 `renderList` 按 `state.index` 裁剪（storage.onChanged 路径同口径）、裁空即退模式，重绘后按它回放 `.on`。**批量操作全走已有 post 协议**：批量收藏全已收藏则统一取消、否则把没收藏的都收上，且**只弹一条 toast**（`showToast`，单条 `toggleFav` 会 N 连弹）；移入科目是新居中模态 `#subpick`（样式照 `#confirm` 的 `.box`，列「移出科目」+ 全部科目、标题带条数，只发 `subject assign`，不做科目增删改）；批量删除复用 `#confirm`、文案带条数、确定后逐条 `delete` 并退出模式。退出三条路：底栏「取消」/ Escape（追加在既有模态优先级链之后）/ 模式里换筛选（全部/收藏）。底栏 `#batchbar` 隐藏常态、贴侧栏底，计数「已选 N 项」、选中 0 个时三个操作禁用；侧栏 `.sb-head` 与顶栏一概不动；`.sub` 科目行不参与多选。**顺带修掉两个被批量场景暴露的真 bug**：① `store.js setIndex` 是 get→mutate→set 的读改写，SW `handleContent` 不 await，批量消息背靠背进来会读到同一份旧快照、后写盖前写（实测批量两条必丢一条）—— 用一条 Promise 链把临界区串行化；② `setSelecting(false)` 只清集合不清 DOM 上的 `.on` 残影，退出即摘干净。e2e 加 29 条离线确定性断言（长按进模式 / 涂抹跨行 / 起笔已选先取消 / 折返换向 / 模式内单击 / 移入弹层 / 批量收藏单 toast 且落存储 / 确认框带条数与取消 / 三条退出路），`python tests/e2e.py` 全绿 210 条（181 → 210） |
+
 ## 七、增量实现与验证
 
 1. P1 骨架与检索：manifest、`llm.js`、`tools.js`、`store.js` —— 四个模块 node 语法/链接检查通过。

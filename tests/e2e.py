@@ -7,7 +7,8 @@
 覆盖：Alt+S 框选截图 → 抽屉弹出 → 阶段A 直接作答 → <<ok>> 守卫/联网核实 →
 异步起名 → 半圆小角收起弹出（内压/外凸）→ 会话气泡点击列表（悬停不触发）→ 顶栏 ★ 收藏（品牌粉、
 只标记不置顶、有提示）→ 删除/重命名后列表保持 → 滚动不跟随 → CoT 思考块 → 追问 → 0 下载（静默镜像）
-→ FSA 写盘能力 → 设置页搜题记录首块 + 整页审查（筛选 / 列表收放 / hash 定位）。
+→ FSA 写盘能力 → 设置页搜题记录首块 + 整页审查（筛选 / 列表收放 / hash 定位）+
+涂抹多选（长按进模式 / 单选框涂抹与折返换向 / 批量收藏·移入科目·删除 / 底栏取消·Escape·换筛选三条退出路）。
 全部断言通过时退出码为 0；失败会把现场截图留在 tests/_shots/。
 """
 
@@ -1475,6 +1476,244 @@ def main():
                 left_rows = rev.evaluate("() => document.querySelectorAll('#list .row').length")
                 check("删科目后目录消失、会话原样留下", left_subs == 0 and left_rows == 2, f"subs={left_subs} rows={left_rows}")
                 rev.screenshot(path=str(SHOTS / "12-review-subjects.png"))
+
+                # ---- 涂抹多选（照移动端 record.js 移植）：全段离线确定性断言，不依赖模型 ----
+                def ms_rows():
+                    return rev.evaluate(
+                        "() => [...document.querySelectorAll('#list .row')].map(r => ({ on: r.classList.contains('on'),"
+                        " sid: r.dataset.sid, fav: r.classList.contains('fav') }))"
+                    )
+
+                def ms_sel():
+                    return rev.evaluate("() => document.getElementById('list').classList.contains('sel')")
+
+                def ms_active():
+                    return rev.evaluate(
+                        "() => (document.querySelector('#list .row.active') || {}).dataset?.sid || null"
+                    )
+
+                def ms_n():
+                    return rev.evaluate("() => document.querySelectorAll('#list .row').length")
+
+                def ms_hold(row_idx):
+                    """长按某行 700ms（进多选的唯一入口）"""
+                    b = rev.locator("#list .row").nth(row_idx).bounding_box()
+                    rev.mouse.move(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2)
+                    rev.mouse.down()
+                    rev.wait_for_timeout(700)
+                    rev.mouse.up()
+                    rev.wait_for_timeout(300)
+
+                # 常态：单选框不现身、批量底栏收起
+                check(
+                    "多选常态：单选框隐藏、批量底栏收起",
+                    rev.evaluate(
+                        "() => getComputedStyle(document.querySelector('#list .row .ck')).display === 'none'"
+                        " && document.getElementById('batchbar').hidden"
+                    ),
+                    "ck none + batchbar hidden",
+                )
+                # 铺路：建一个科目并展开（批量移入要科目可选；块尾删掉还原前置状态）
+                rev.click("#newSub")
+                rev.wait_for_timeout(300)
+                rev.fill("#subInput", "批量科目")
+                rev.click("#subYes")
+                rev.wait_for_timeout(600)
+                check("多选用例铺路：科目就位", rev.evaluate("() => document.querySelectorAll('#list .sub').length") == 1, "sub==1")
+                rev.click("#list .sub")
+                rev.wait_for_timeout(300)
+                check(
+                    "多选用例铺路：科目展开（接批量移入）",
+                    rev.evaluate("() => !!document.querySelector('#list .subempty')") and ms_n() == 2,
+                    f"rows={ms_n()}",
+                )
+
+                # 长按**非当前**会话 700ms 进多选：选中被按那张、收尾 click 被吃掉（没打开会话）
+                idx_a = rev.evaluate(
+                    """() => {
+                        const rows = [...document.querySelectorAll('#list .row')];
+                        const a = rows.findIndex(r => r.classList.contains('active'));
+                        return rows.length > 1 && a === 0 ? 1 : 0;
+                    }"""
+                )
+                idx_o = 1 - idx_a
+                active_before = ms_active()
+                ms_hold(idx_a)
+                check(
+                    "长按 700ms 进多选（#list.sel + 底栏浮出）",
+                    ms_sel() and not rev.evaluate("() => document.getElementById('batchbar').hidden"),
+                    "sel + batchbar",
+                )
+                onv = [r["on"] for r in ms_rows()]
+                check("长按选中的是被按那张卡", onv == [i == idx_a for i in range(len(onv))], f"on={onv} idx={idx_a}")
+                check(
+                    "底栏计数「已选 1 项」",
+                    rev.evaluate("() => document.getElementById('selCount').textContent") == "已选 1 项",
+                    rev.evaluate("() => document.getElementById('selCount').textContent"),
+                )
+                check("长按的收尾 click 被吃掉（没打开会话）", ms_active() == active_before, f"{ms_active()} vs {active_before}")
+                check(
+                    "模式里单选框现身（.ck display:flex）",
+                    rev.evaluate("() => getComputedStyle(document.querySelector('#list .row .ck')).display") == "flex",
+                    "ck flex",
+                )
+                check(
+                    "科目行不参与多选（.sub 下没有 .ck）",
+                    rev.evaluate("() => document.querySelectorAll('#list .sub .ck').length") == 0,
+                    "sub ck==0",
+                )
+
+                # 涂抹：从单选框起笔拖到另一张卡的单选框 → 两张全选中（只认单选框起笔）
+                def ck_xy(row_idx):
+                    b = rev.locator("#list .row").nth(row_idx).locator(".ck").bounding_box()
+                    return b["x"] + b["width"] / 2, b["y"] + b["height"] / 2
+
+                fx, fy = ck_xy(idx_o)
+                tx, ty = ck_xy(idx_a)
+                rev.mouse.move(fx, fy)
+                rev.mouse.down()
+                for k in range(1, 6):
+                    rev.mouse.move(fx + (tx - fx) * k / 5, fy + (ty - fy) * k / 5)
+                    rev.wait_for_timeout(40)
+                rev.mouse.up()
+                rev.wait_for_timeout(300)
+                onv = [r["on"] for r in ms_rows()]
+                check("单选框涂抹跨行选中（.row.on 两张全亮）", onv == [True, True], f"on={onv}")
+                check("涂抹收笔后会话没被切走", ms_active() == active_before, f"{ms_active()} vs {active_before}")
+
+                # 折返换向：起笔卡已选 → 本笔先取消（中途全灭）；笔尖折返 = 方向翻转、新段从拐点起算（再全亮）
+                rev.mouse.move(fx, fy)
+                rev.mouse.down()
+                rev.mouse.move(tx, ty)
+                rev.wait_for_timeout(120)
+                onv = [r["on"] for r in ms_rows()]
+                check("涂抹起在已选卡上 = 本笔先取消（笔尖所至全灭）", onv == [False, False], f"on={onv}")
+                rev.mouse.move(fx, fy)
+                rev.wait_for_timeout(120)
+                rev.mouse.up()
+                rev.wait_for_timeout(300)
+                onv = [r["on"] for r in ms_rows()]
+                check("中途折返方向翻转、新段从拐点起算（两张复亮）", onv == [True, True], f"on={onv}")
+
+                # 模式内单击卡片 = 勾选（不打开会话）
+                rev.locator("#list .row").nth(idx_a).locator(".t").click()
+                rev.wait_for_timeout(200)
+                onv = [r["on"] for r in ms_rows()]
+                check("模式内单击卡片 = 取消勾选", onv.count(True) == 1 and not onv[idx_a], f"on={onv}")
+                check("模式内点行不切换会话", ms_active() == active_before, f"{ms_active()} vs {active_before}")
+                rev.locator("#list .row").nth(idx_a).locator(".t").click()
+                rev.wait_for_timeout(200)
+                onv = [r["on"] for r in ms_rows()]
+                check("再点一次重新勾选（选中 2 张）", onv == [True, True], f"on={onv}")
+
+                # 批量移入科目：弹层列「移出科目 + 全部科目」，选中科目后两行都归入
+                rev.click("#bMove")
+                rev.wait_for_timeout(300)
+                pick_n = rev.evaluate("() => document.querySelectorAll('#pickList .prow').length")
+                pick_title = rev.evaluate("() => document.getElementById('pickTitle').textContent")
+                check(
+                    "移入科目弹层列出「移出科目」+ 科目、标题带条数",
+                    pick_n == 2 and "2 条" in pick_title,
+                    f"prow={pick_n} title={pick_title!r}",
+                )
+                rev.click("#pickList .prow:nth-child(2)")
+                rev.wait_for_timeout(700)
+                in_n = rev.evaluate("() => document.querySelectorAll('#list .row.in').length")
+                check(
+                    "批量移入生效：两行都进科目、弹层已关、模式还在",
+                    in_n == 2
+                    and ms_n() == 2
+                    and not rev.evaluate("() => document.getElementById('subpick').classList.contains('on')")
+                    and ms_sel(),
+                    f"in={in_n} rows={ms_n()}",
+                )
+
+                # 批量收藏：只弹一条 toast；再点时全已收藏 → 统一取消
+                rev.evaluate("() => document.querySelectorAll('#toasts .toast').forEach(t => t.remove())")
+                rev.click("#bFav")
+                rev.wait_for_timeout(500)
+                t1 = rev_toast()
+                n1 = rev.evaluate("() => document.querySelectorAll('#toasts .toast').length")
+                check("批量收藏只弹一条 toast（已收藏 N 条）", n1 == 1 and bool(t1) and t1.startswith("已收藏") and t1.endswith("条"), f"{n1} {t1!r}")
+                check(
+                    "批量收藏后两行都亮星标且落进存储",
+                    all(r["fav"] for r in ms_rows()) and all(fav_of(r["sid"]) for r in ms_rows()),
+                    str(ms_rows()),
+                )
+                rev.evaluate("() => document.querySelectorAll('#toasts .toast').forEach(t => t.remove())")
+                rev.click("#bFav")
+                rev.wait_for_timeout(500)
+                t2 = rev_toast()
+                n2 = rev.evaluate("() => document.querySelectorAll('#toasts .toast').length")
+                check(
+                    "再点批量收藏：全已收藏 → 统一取消（一条 toast）",
+                    n2 == 1 and bool(t2) and t2.startswith("已取消收藏") and t2.endswith("条"),
+                    f"{n2} {t2!r}",
+                )
+                check("批量取消后没有亮星的行", not any(r["fav"] for r in ms_rows()), str(ms_rows()))
+
+                # 批量删除：确认框带条数；取消则框关、模式在、一行不删
+                rev.click("#bDel")
+                rev.wait_for_timeout(300)
+                conf_on = rev.evaluate("() => document.getElementById('confirm').classList.contains('on')")
+                conf_txt = rev.evaluate("() => document.getElementById('confirmName').textContent")
+                check("批量删除确认框带条数", conf_on and "选中的 2 条" in conf_txt, f"on={conf_on} {conf_txt!r}")
+                rev.click("#confirmNo")
+                rev.wait_for_timeout(300)
+                check(
+                    "取消批量删除：框关、模式还在、一行没删",
+                    not rev.evaluate("() => document.getElementById('confirm').classList.contains('on')")
+                    and ms_sel()
+                    and ms_n() == 2
+                    and [r["on"] for r in ms_rows()] == [True, True],
+                    "cancelled",
+                )
+
+                # 退出多选三条路：底栏「取消」/ Escape / 模式里换筛选
+                rev.click("#selCancel")
+                rev.wait_for_timeout(250)
+                check(
+                    "点底栏「取消」退出多选（sel 撤、底栏收、选中清零、单选框藏回）",
+                    not ms_sel()
+                    and rev.evaluate("() => document.getElementById('batchbar').hidden")
+                    and not any(r["on"] for r in ms_rows())
+                    and rev.evaluate("() => getComputedStyle(document.querySelector('#list .row .ck')).display === 'none'"),
+                    "exited",
+                )
+
+                ms_hold(idx_a)
+                entered = ms_sel()
+                rev.keyboard.press("Escape")
+                rev.wait_for_timeout(250)
+                check("Escape 退出多选（模态链之后）", entered and not ms_sel(), f"entered={entered}")
+
+                ms_hold(idx_a)
+                entered = ms_sel()
+                rev.click('.seg-b[data-filter="fav"]')
+                rev.wait_for_timeout(300)
+                check(
+                    "模式里换筛选（收藏）退出多选、视图切走",
+                    entered and not ms_sel() and rev.evaluate("() => !!document.querySelector('#list .empty')"),
+                    f"entered={entered}",
+                )
+                rev.click('.seg-b[data-filter="all"]')
+                rev.wait_for_timeout(300)
+                check("切回全部视图（两行都在）", ms_n() == 2, f"rows={ms_n()}")
+
+                # 收尾：删掉铺路科目（目录消失、会话原样留下），还原后续用例的前置状态
+                rev.hover("#list .sub")
+                rev.click("#list .sub .sx")
+                rev.wait_for_timeout(300)
+                rev.click("#confirmYes")
+                rev.wait_for_timeout(700)
+                left_subs = rev.evaluate("() => document.querySelectorAll('#list .sub').length")
+                left_in = rev.evaluate("() => document.querySelectorAll('#list .row.in').length")
+                check(
+                    "多选收尾：铺路科目删掉、会话原样留下",
+                    left_subs == 0 and left_in == 0 and ms_n() == 2,
+                    f"subs={left_subs} in={left_in} rows={ms_n()}",
+                )
+                rev.screenshot(path=str(SHOTS / "15-review-multiselect.png"))
 
                 # ---- 底部输入框也迁进整页：关掉自动核实省一次联网核实，发一句追问 ----
                 opt.click('.idx a[data-sec="model"]')

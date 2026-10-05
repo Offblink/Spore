@@ -210,6 +210,39 @@
       .row .r:hover { background: #eef1fa; color: var(--accent) }
       .row .x:hover { background: #fdecef; color: #d02747 }
 
+      /* ---- 多选模式（长按进、单选框涂抹，照移动端 record.js 移植）：
+             单选框只在模式里现身、排在行首（与 ★/✎/×、红点 .d 共存）；
+             涂抹只认单选框起笔（touch-action:none 在这儿把拖动让给涂抹） ---- */
+      .row .ck {
+        flex: none; display: none; width: 22px; height: 22px; border-radius: 50%;
+        border: 2px solid #d9dcec; background: #fff; color: transparent;
+        align-items: center; justify-content: center; touch-action: none;
+      }
+      .row .ck svg { width: 12px; height: 12px; display: block }
+      #list.sel .row .ck { display: flex }
+      #list.sel .row.on { background: #fff0f7 }
+      #list.sel .row.on .ck { background: var(--accent); border-color: var(--accent); color: #fff }
+
+      /* ---- 批量底栏（多选模式贴侧栏底；隐藏常态，进模式才浮出；侧栏 head 不动） ---- */
+      #batchbar {
+        flex: none; display: flex; align-items: center; gap: 6px;
+        padding: 10px 8px calc(10px + env(safe-area-inset-bottom));
+        background: #fff; border-top: 1px solid var(--border);
+      }
+      #batchbar[hidden] { display: none }
+      .bcount { flex: none; white-space: nowrap; font-size: 12.5px; font-weight: 650; color: var(--muted) }
+      .bbtn {
+        flex: 1; white-space: nowrap; border: 0; border-radius: 999px; padding: 8px 4px;
+        cursor: pointer; font: 600 12.5px/1 inherit;
+        background: #fff0f7; color: var(--accent2); transition: background 0.15s;
+      }
+      .bbtn:hover { background: #ffe4f1 }
+      .bbtn.danger { background: #fdecef; color: #d02747 }
+      .bbtn.danger:hover { background: #fbdde3 }
+      .bbtn.plain { background: #f1f3fb; color: #4a4f6b }
+      .bbtn.plain:hover { background: #e8ebf7 }
+      .bbtn:disabled { opacity: 0.4; cursor: default; pointer-events: none }
+
       /* ---- 底部输入（与抽屉同款语义，Enter 发送） ---- */
       #composer {
         flex: none; display: flex; align-items: flex-end; gap: 9px;
@@ -242,12 +275,12 @@
       #stop[hidden] { display: none }
 
       /* ---- 删除确认 / 重命名：整页居中模态（抽屉里那两个的复制品） ---- */
-      #confirm, #rename, #subnew {
+      #confirm, #rename, #subnew, #subpick {
         position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(16, 20, 40, 0.34); backdrop-filter: blur(2px); z-index: 40;
       }
-      #confirm.on, #rename.on, #subnew.on { display: flex }
-      #confirm .box, #rename .box, #subnew .box {
+      #confirm.on, #rename.on, #subnew.on, #subpick.on { display: flex }
+      #confirm .box, #rename .box, #subnew .box, #subpick .box {
         width: 340px; background: #fff; border-radius: 16px; padding: 22px 20px 18px;
         box-shadow: 0 26px 64px rgba(10, 12, 24, 0.34); text-align: center;
         animation: pop 0.24s cubic-bezier(0.16, 1, 0.3, 1);
@@ -266,6 +299,19 @@
         font: 13.5px/1.4 'Cascadia Code', Consolas, monospace; color: var(--text); text-align: center;
       }
       #renameInput:focus, #subInput:focus { border-color: var(--accent); background: #fff }
+      /* 移入科目（多选批量）：科目清单占满 .box 中段，行样式与 #confirm 同一套模态 */
+      #pickList {
+        display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px;
+        max-height: 46vh; overflow-y: auto; text-align: left;
+      }
+      .prow {
+        border: 1px solid var(--border); background: #fafbfe; border-radius: 10px;
+        padding: 9px 11px; font: 600 13.5px/1.4 inherit; color: #40455f;
+        cursor: pointer; text-align: left; transition: background 0.15s, border-color 0.15s;
+      }
+      .prow:hover { background: #fff0f7; border-color: var(--accent) }
+      .prow.on { background: #fff0f7; border-color: var(--accent); color: var(--accent2) }
+      .prow.none { color: #7b81a0 }
 
       /* ---- toast：抽屉同款（右下角飞入、3.6s 自动收、点击打开会话），收藏两处入口共用 ---- */
       #toasts {
@@ -308,6 +354,13 @@
           <button id="newSub" type="button" title="新建科目（目录），把会话拖进去归类">＋ 新建科目</button>
         </div>
         <div id="list"></div>
+        <footer id="batchbar" hidden>
+          <span class="bcount" id="selCount">已选 0 项</span>
+          <button class="bbtn" id="bFav" type="button">收藏</button>
+          <button class="bbtn" id="bMove" type="button">移入科目</button>
+          <button class="bbtn danger" id="bDel" type="button">删除</button>
+          <button class="bbtn plain" id="selCancel" type="button">取消</button>
+        </footer>
       </aside>
       <main id="main">
         <header class="topbar">
@@ -351,6 +404,16 @@
         <div class="acts">
           <button class="cno" id="subNo" type="button">取消</button>
           <button class="cyes" id="subYes" type="button">创建</button>
+        </div>
+      </div>
+    </div>
+    <!-- 移入科目（多选批量的 openPicker 对应物）：列全部科目 + 「移出科目」，只发 assign -->
+    <div id="subpick">
+      <div class="box">
+        <div class="ct" id="pickTitle">移入科目</div>
+        <div id="pickList"></div>
+        <div class="acts">
+          <button class="cno" id="pickNo" type="button">取消</button>
         </div>
       </div>
     </div>
