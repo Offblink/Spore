@@ -9,7 +9,9 @@
 只标记不置顶、有提示）→ 删除/重命名后列表保持 → 滚动不跟随 → CoT 思考块 → 追问 → 0 下载（静默镜像）
 → FSA 写盘能力 → 设置页搜题记录首块 + 整页审查（筛选 / 列表收放 / hash 定位）+
 涂抹多选（「批量选择」按钮进模式·0 选起手 / 单选框涂抹与折返换向 / 批量收藏·移入科目·删除 /
-底栏取消·Escape·换筛选·按钮再点四条退出路）+ 拖入图片 URL 读取（两处 composer 的 dragover 兜底 /
+底栏取消·Escape·换筛选·按钮再点四条退出路）+ 涂抹贴边自动滚动 #list（贴下缘连续滚 → 回中部停 →
+pointerup 必停，播种超长列表，全确定性）+ LaTeX 渲染（四类分隔符 / $2+2=4$ 出 .katex、价格 $5 不被吞、
+坏公式原样源码 / 整页与抽屉 shadow 两面钉住共用 md.js）+ 拖入图片 URL 读取（两处 composer 的 dragover 兜底 /
 非 http(s) 忽略并提示 / 拉非图不建会话 / 真图建会话且消息带图）。
 全部断言通过时退出码为 0；失败会把现场截图留在 tests/_shots/。
 """
@@ -1737,6 +1739,272 @@ def main():
                     f"subs={left_subs} in={left_in} rows={ms_n()}",
                 )
                 rev.screenshot(path=str(SHOTS / "15-review-multiselect.png"))
+
+                # ---- P1：多选涂抹贴近上下边界 → #list 自动滚动（全段确定性，不依赖模型） ----
+                active_before = ms_active()
+                base_url = rev.url.split("#")[0]
+                orig_idx = sw.evaluate(
+                    "async () => (await chrome.storage.local.get('spore.index'))['spore.index'] || []"
+                )
+                seeds = [
+                    {
+                        "id": f"seed-scroll-{i:02d}",
+                        "title": f"滚动用例 {i:02d}",
+                        "created": 1700000000000 + i,
+                        "updated": 1700000000000 + i,
+                        "count": 1,
+                        "status": "idle",
+                        "unread": False,
+                    }
+                    for i in range(1, 25)
+                ]
+                sw.evaluate(
+                    "async (v) => { await chrome.storage.local.set({ 'spore.index': v }); return true; }",
+                    seeds + orig_idx,
+                )
+                rev.reload()
+                rev.wait_for_function(
+                    "() => document.querySelectorAll('#list .row').length === 26", timeout=15000
+                )
+                # 之前有用例收放过侧栏：先确保展开（收起态 #list 整个在负坐标，取点就没意义了）
+                if rev.evaluate("() => document.getElementById('sidebar').classList.contains('collapsed')"):
+                    rev.click("#collapse")
+                    rev.wait_for_timeout(500)
+                geo = rev.evaluate(
+                    "() => { const l = document.getElementById('list');"
+                    " return { max: l.scrollHeight - l.clientHeight, h: l.clientHeight }; }"
+                )
+                ms_enter()
+                check(
+                    "P1 铺路：播种 26 行超长列表、可滚、已进多选",
+                    geo["max"] > 200 and geo["h"] > 300 and ms_sel(),
+                    f"max={geo['max']} h={geo['h']} sel={ms_sel()}",
+                )
+                lb = rev.locator("#list").bounding_box()
+                ck0 = rev.locator("#list .row").nth(0).locator(".ck").bounding_box()
+                fx = ck0["x"] + ck0["width"] / 2
+                fy = ck0["y"] + ck0["height"] / 2
+                edge_y = lb["y"] + lb["height"] - 6
+                mid_y = lb["y"] + lb["height"] / 2
+
+                def scroll_top():
+                    return rev.evaluate("() => document.getElementById('list').scrollTop")
+
+                def scroll_max():
+                    return rev.evaluate(
+                        "() => { const l = document.getElementById('list');"
+                        " return l.scrollHeight - l.clientHeight; }"
+                    )
+
+                rev.mouse.move(fx, fy)
+                rev.mouse.down()
+                for k in range(1, 11):
+                    rev.mouse.move(fx, fy + (edge_y - fy) * k / 10)
+                    rev.wait_for_timeout(25)
+                rev.wait_for_timeout(400)
+                s1, mx1 = scroll_top(), scroll_max()
+                check(
+                    "涂抹贴下缘：#list 自动连续滚动（scrollTop 变大且未触底）",
+                    s1 > 60 and s1 < mx1 - 40,
+                    f"s1={s1} max={mx1}",
+                )
+                for k in range(1, 11):
+                    rev.mouse.move(fx, edge_y + (mid_y - edge_y) * k / 10)
+                    rev.wait_for_timeout(25)
+                rev.wait_for_timeout(350)
+                s2 = scroll_top()
+                rev.wait_for_timeout(500)
+                s3 = scroll_top()
+                check("笔尖回到中部：离开边缘档滚动停（两次采样相等）", s3 == s2, f"{s2} -> {s3}")
+                for k in range(1, 11):
+                    rev.mouse.move(fx, mid_y + (edge_y - mid_y) * k / 10)
+                    rev.wait_for_timeout(25)
+                rev.wait_for_timeout(300)
+                s4 = scroll_top()
+                check("再贴下缘：滚动重新起步", s4 > s3 + 30, f"{s3} -> {s4}")
+                rev.mouse.up()
+                rev.wait_for_timeout(250)
+                s5 = scroll_top()
+                rev.wait_for_timeout(500)
+                s6, mx2 = scroll_top(), scroll_max()
+                check(
+                    "pointerup 收笔：自动滚动必停（两次采样相等且未触底，非触底假停）",
+                    s6 == s5 and s5 < mx2 - 30,
+                    f"{s5} -> {s6} max={mx2}",
+                )
+                rev.screenshot(path=str(SHOTS / "17-review-edge-scroll.png"))
+                # 收尾：退多选、删播种、活动会话原样
+                if ms_sel():
+                    rev.click("#selCancel")
+                    rev.wait_for_timeout(250)
+                sw.evaluate(
+                    "async (v) => { await chrome.storage.local.set({ 'spore.index': v }); return true; }",
+                    orig_idx,
+                )
+                rev.wait_for_function(
+                    "() => document.querySelectorAll('#list .row').length === 2", timeout=10000
+                )
+                if active_before and ms_active() != active_before:
+                    rev.goto(base_url + "#" + active_before)
+                    rev.wait_for_timeout(500)
+                check(
+                    "P1 收尾：播种清掉、列表回到 2 行、活动会话不变",
+                    ms_n() == 2 and ms_active() == active_before,
+                    f"rows={ms_n()} active={ms_active()} vs {active_before}",
+                )
+
+                # ---- P6：LaTeX 渲染（md.js 抽屉/整页两面共用；四条分隔符口径；不依赖模型） ----
+                math_sid = "mathseed-0001"
+                math_title = "LaTeX 渲染自测"
+                math_ans = (
+                    "行内 $a^2+b^2$、数字开头 $2+2=4$、括号行内 \\(c=d\\)；"
+                    "块级 $$\\frac{1}{2}$$ 与 \\[x+y\\]；"
+                    "坏公式 $\\notacommand$ 原样保留；"
+                    "价格 $5 不吃，单价 $5，$8 元也不吃；转义 \\$5 是字面美元"
+                )
+                math_row = {
+                    "id": math_sid,
+                    "title": math_title,
+                    "created": 1700001111000,
+                    "updated": 1700001111000,
+                    "count": 2,
+                    "status": "idle",
+                    "unread": False,
+                }
+                sw.evaluate(
+                    """async (v) => {
+                        await chrome.storage.local.set({
+                            'spore.index': [v.row].concat(v.orig),
+                            ['spore.sess.' + v.sid]: {
+                                id: v.sid, title: v.title, created: v.row.created, updated: v.row.updated,
+                                status: 'idle', unread: false,
+                                messages: [
+                                    { role: 'user', ts: v.row.created, text: '题目：公式渲染自测' },
+                                    { kind: 'answer', ts: v.row.updated, ans: v.ans,
+                                      why: '补充：先化简再代入' },
+                                ],
+                            },
+                        });
+                        return true;
+                    }""",
+                    {"row": math_row, "sid": math_sid, "title": math_title, "ans": math_ans, "orig": orig_idx},
+                )
+                rm = ctx.new_page()
+                rm.on("pageerror", lambda e: print("[pageerror]", e, flush=True))
+                rm.goto(base_url + "#" + math_sid)
+                rm.wait_for_selector("#history .msg.bot .ans", timeout=15000)
+                rm.wait_for_timeout(400)
+                link_ok = rm.evaluate(
+                    "() => { const l = document.querySelector('link[href*=\"katex.min.css\"]');"
+                    " return !!(l && l.sheet); }"
+                )
+                check("P6 整页：head 挂上 KaTeX 样式表（sheet 载入成功）", bool(link_ok), link_ok)
+                fonts_n = rm.evaluate(
+                    "async () => { try { const f = await document.fonts.load('1.21em KaTeX_Main');"
+                    " return f.length; } catch (e) { return -1; } }"
+                )
+                check("P6 整页：KaTeX 字体真的加载进来（WAR 放行）", (fonts_n or 0) > 0, fonts_n)
+                info = rm.evaluate(
+                    """() => {
+                        const els = [...document.querySelectorAll('#history .katex')];
+                        const one = els[0];
+                        return {
+                            n: els.length,
+                            h: one ? one.offsetHeight : 0,
+                            t: one ? one.textContent.trim().length : 0,
+                            font: one ? getComputedStyle(one).fontFamily : '',
+                            doc: document.querySelector('#history').textContent,
+                        };
+                    }"""
+                )
+                check(
+                    "P6 整页：四类分隔符 5 处渲染成 .katex（可见、非空、KaTeX 样式生效）",
+                    info["n"] == 5 and info["h"] > 0 and info["t"] > 0 and "KaTeX" in info["font"],
+                    f"n={info['n']} h={info['h']} t={info['t']} font={info['font'][:50]}",
+                )
+                doc = info["doc"]
+                check("P6 整页：数字开头公式 $2+2=4$ 被渲染（源码不裸露）", "$2+2=4$" not in doc, "$2+2=4$" in doc)
+                check(
+                    "P6 整页：价格 $5/$8 不被吞、\\$5 剥成字面 $5",
+                    "$5" in doc and "$8" in doc and "\\$5" not in doc and "转义 $5 是字面美元" in doc,
+                    repr([s for s in ("$5", "$8", "\\$5") if s in doc]),
+                )
+                check(
+                    "P6 整页：坏公式原样显示源码",
+                    "$\\notacommand$" in doc,
+                    "$\\notacommand$" in doc,
+                )
+                rm.screenshot(path=str(SHOTS / "18-review-katex.png"))
+                rm.close()
+
+                # 抽屉是 Shadow DOM：另一面钉住「共用同一份 md.js」+ 样式进 shadow root
+                # 抽屉开合记在 origin 共享的 localStorage 上（spore.open）：探针页只读不点，
+                # 否则把 fixture 页的开合状态带偏（切页后 #sessions 就没了）。挂载时按原值自开自关。
+                open_flag0 = page.evaluate("() => localStorage.getItem('spore.open')")
+                dp = ctx.new_page()
+                dp.on("pageerror", lambda e: print("[pageerror]", e, flush=True))
+                dp.goto(PAGE, wait_until="load")
+                dp.wait_for_selector("spore-drawer", timeout=15000)
+                guard(
+                    dp,
+                    "P6 抽屉等 .katex 出现",
+                    lambda: dp.wait_for_function(
+                        """() => {
+                            const h = document.querySelector('spore-drawer');
+                            const sr = h && h.shadowRoot;
+                            return !!sr && sr.querySelectorAll('.katex').length === 5;
+                        }""",
+                        timeout=15000,
+                    ),
+                )
+                dinfo = dp.evaluate(
+                    """() => {
+                        const sr = document.querySelector('spore-drawer').shadowRoot;
+                        const els = [...sr.querySelectorAll('.katex')];
+                        const one = els[0];
+                        const link = sr.querySelector('link[href*="katex.min.css"]');
+                        const doc = sr.querySelector('#stream').textContent;
+                        return {
+                            n: els.length,
+                            h: one ? one.offsetHeight : 0,
+                            font: one ? getComputedStyle(one).fontFamily : '',
+                            link: !!(link && link.sheet),
+                            has5: doc.includes('$5') && doc.includes('$8'),
+                            bad: doc.includes('$' + String.fromCharCode(92) + 'notacommand$'),
+                        };
+                    }"""
+                )
+                check(
+                    "P6 抽屉：shadow root 里同样渲染 5 处 .katex（共用 md.js）、CSS 进了 shadow",
+                    dinfo["n"] == 5 and dinfo["h"] > 0 and "KaTeX" in dinfo["font"] and dinfo["link"],
+                    f"n={dinfo['n']} h={dinfo['h']} link={dinfo['link']} font={dinfo['font'][:50]}",
+                )
+                check(
+                    "P6 抽屉：价格与坏公式源码同样原样",
+                    dinfo["has5"] and dinfo["bad"],
+                    f"has5={dinfo['has5']} bad={dinfo['bad']}",
+                )
+                dp.screenshot(path=str(SHOTS / "19-drawer-katex.png"))
+                dp.close()
+                open_flag1 = page.evaluate("() => localStorage.getItem('spore.open')")
+                check(
+                    "P6 收尾：探针页没把 fixture 抽屉开合状态带偏（spore.open 原样）",
+                    open_flag1 == open_flag0,
+                    f"{open_flag0} -> {open_flag1}",
+                )
+                sw.evaluate(
+                    "async (v) => { await chrome.storage.local.set({ 'spore.index': v.idx });"
+                    " await chrome.storage.local.remove(v.key); return true; }",
+                    {"idx": orig_idx, "key": "spore.sess." + math_sid},
+                )
+                rev.wait_for_function(
+                    "() => document.querySelectorAll('#list .row').length === 2", timeout=10000
+                )
+                check(
+                    "P6 收尾：索引与活动会话都还原（2 行、仍是原会话）",
+                    ms_n() == 2 and ms_active() == active_before,
+                    f"rows={ms_n()} active={ms_active()} vs {active_before}",
+                )
 
                 # ---- 底部输入框也迁进整页：关掉自动核实省一次联网核实，发一句追问 ----
                 opt.click('.idx a[data-sec="model"]')

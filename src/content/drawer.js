@@ -94,7 +94,6 @@
 .chip.skip{background:#f1f2f8;color:#7b81a0}
 .vnote{font-size:15px;color:#3d4260;white-space:pre-wrap}
 .chat{color:#14172a;white-space:pre-wrap}
-.math{font-family:'Cambria Math','Latin Modern Math',Georgia,serif;font-style:italic;color:#20244a}
 .msg.bot code{font-family:'Cascadia Code',Consolas,monospace;font-size:14px;background:#f4f6fd;
   border:1px solid #eef0f8;border-radius:5px;padding:0 4px}
 .msg.bot a{color:#c2185b;text-decoration:none;border-bottom:1px solid #f7c8da}
@@ -245,6 +244,12 @@
   const style = document.createElement('style');
   style.textContent = CSS;
   shadow.appendChild(style);
+  // KaTeX 样式要进 shadow root（外面的 <link> 进不来）：CSS 里的字体相对它解析成
+  // chrome-extension://…/katex/fonts/*，manifest 的 web_accessible_resources 已放行
+  const katexCss = document.createElement('link');
+  katexCss.rel = 'stylesheet';
+  katexCss.href = chrome.runtime.getURL('src/lib/katex/katex.min.css');
+  shadow.appendChild(katexCss);
 
   const wrap = document.createElement('div');
   wrap.id = 'root';

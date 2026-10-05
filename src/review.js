@@ -30,7 +30,13 @@
   };
   // 多选手势（照移动端 record.js 移植）：批量选择按钮进模式（0 选起手）；单选框起笔涂抹连选
   let suppressClick = false; // 涂抹收笔后的那次 click 要吃掉
-  let paint = null; // 本笔涂抹 {seg, prev, dx, dir, moved}
+  let paint = null; // 本笔涂抹 {seg, prev, dx, dir, moved, px, py, pid}
+  // 涂抹贴边自动滚动 #list（量纲对齐 GUI 端：band=56 / step=14 / 30ms）：
+  // 笔尖距 #list 视口上/下缘 56px 内 → 连续滚；离开边缘停；收笔（up/cancel）必停
+  const EDGE_BAND = 56;
+  const EDGE_STEP = 14;
+  const EDGE_MS = 30;
+  let edgeScroll = null; // {dir, timer}
   // 历史会反复重绘（回合内 1.2s 落盘一次），图片按 key 缓存，别每次都去 storage 捞几百 KB
   const imgCache = new Map();
   let port = null;
@@ -297,6 +303,54 @@
     }
   }
 
+  /** 笔尖命中重放：pointermove 与贴边滚动的每一拍共用这一份（滚动把新卡送到笔尖下也按它入选） */
+  function paintHit(x, y) {
+    const over = rowUnder(x, y);
+    if (!over) return;
+    const idx = rowsArr().indexOf(over);
+    if (idx < 0 || idx === paint.prev) return;
+    const d = idx > paint.prev ? 1 : -1;
+    if (paint.dx && d !== paint.dx) {
+      // 中途换向：方向翻转，新段从拐点（上一格）起算
+      paint.dir = !paint.dir;
+      paint.seg = paint.prev;
+    }
+    paint.dx = d;
+    paint.prev = idx;
+    paint.moved = true;
+    paintRange(idx);
+  }
+
+  /** 贴边分档：-1 = 贴上缘往上滚，1 = 贴下缘往下滚，0 = 不滚（含笔尖划出列表外） */
+  function edgeDir(y) {
+    const b = listBox.getBoundingClientRect();
+    if (y < b.top || y > b.bottom) return 0; // 笔尖出了列表（pointer capture 下照样收得到 move）
+    if (y - b.top <= EDGE_BAND) return -1;
+    if (b.bottom - y <= EDGE_BAND) return 1;
+    return 0;
+  }
+
+  function stopEdgeScroll() {
+    if (edgeScroll) {
+      clearInterval(edgeScroll.timer);
+      edgeScroll = null;
+    }
+  }
+
+  function edgeTick() {
+    if (!paint || !state.selecting) return stopEdgeScroll(); // 模式被别的路退掉了
+    const before = listBox.scrollTop;
+    listBox.scrollTop = before + edgeScroll.dir * EDGE_STEP;
+    if (listBox.scrollTop === before) return stopEdgeScroll(); // 到头了
+    if (paint.px != null) paintHit(paint.px, paint.py); // 滚动露出的新卡继续参与涂抹
+  }
+
+  function startEdgeScroll(dir) {
+    if (edgeScroll && edgeScroll.dir === dir) return;
+    stopEdgeScroll();
+    edgeScroll = { dir, timer: setInterval(edgeTick, EDGE_MS) };
+  }
+
   function toggleSub(id) {
     if (state.subOpen.has(id)) state.subOpen.delete(id);
     else state.subOpen.add(id);
@@ -362,7 +416,14 @@
     if (e.target.closest('.ck') && state.selecting) {
       // 涂抹起笔：首段方向看起笔格（起在已选上 = 本笔先取消）；seg = 起笔格
       const idx = rowsArr().indexOf(row);
-      paint = { seg: idx, prev: idx, dx: 0, dir: !state.selected.has(row.dataset.sid), moved: false };
+      paint = { seg: idx, prev: idx, dx: 0, dir: !state.selected.has(row.dataset.sid), moved: false,
+                px: e.clientX, py: e.clientY, pid: e.pointerId };
+      // 抓住指针：笔尖划出 #list 也继续收 move（否则贴边档会停不下来），up 同理能收到
+      try {
+        listBox.setPointerCapture(e.pointerId);
+      } catch {
+        /* 指针已消逝：没抓到也只是退化成旧行为 */
+      }
       e.preventDefault();
     }
   });
@@ -370,37 +431,33 @@
   listBox.addEventListener('pointermove', (e) => {
     if (!e.isPrimary) return;
     if (paint && state.selecting) {
-      const over = rowUnder(e.clientX, e.clientY);
-      if (over) {
-        const idx = rowsArr().indexOf(over);
-        if (idx >= 0 && idx !== paint.prev) {
-          const d = idx > paint.prev ? 1 : -1;
-          if (paint.dx && d !== paint.dx) {
-            // 中途换向：方向翻转，新段从拐点（上一格）起算
-            paint.dir = !paint.dir;
-            paint.seg = paint.prev;
-          }
-          paint.dx = d;
-          paint.prev = idx;
-          paint.moved = true;
-          paintRange(idx);
-        }
-      }
+      paint.px = e.clientX;
+      paint.py = e.clientY;
+      paintHit(e.clientX, e.clientY);
+      const dir = edgeDir(e.clientY);
+      if (dir) startEdgeScroll(dir);
+      else stopEdgeScroll(); // 离开边缘档立刻停
       e.preventDefault();
     }
   });
 
   function endStroke() {
-    if (paint) {
-      if (paint.moved) {
-        suppressClick = true; // 涂抹收笔那下别再触发 click
-      } else {
-        // 单选框上的轻点（没动）：就地翻选，吃掉随后的 click 防双翻
-        const row = rowsArr()[paint.seg];
-        if (row) setRowSel(row.dataset.sid, !state.selected.has(row.dataset.sid));
-        suppressClick = true;
-      }
-      paint = null;
+    stopEdgeScroll(); // 收笔必停：pointerup / pointercancel 都走这里
+    if (!paint) return;
+    if (paint.moved) {
+      suppressClick = true; // 涂抹收笔那下别再触发 click
+    } else {
+      // 单选框上的轻点（没动）：就地翻选，吃掉随后的 click 防双翻
+      const row = rowsArr()[paint.seg];
+      if (row) setRowSel(row.dataset.sid, !state.selected.has(row.dataset.sid));
+      suppressClick = true;
+    }
+    const pid = paint.pid;
+    paint = null; // 先清再放捕获：release 会同步触发 lostpointercapture 重入本函数
+    try {
+      listBox.releasePointerCapture(pid);
+    } catch {
+      /* 捕获已自动释放 */
     }
   }
 
@@ -413,6 +470,8 @@
       suppressClick = false; // cancel 后没有 click，别把标志留给下一笔
     }
   });
+  // 捕获被浏览器收回（页面失焦/指针被别的元素接管）= 这笔结束，滚动跟着停
+  listBox.addEventListener('lostpointercapture', () => endStroke());
   listBox.addEventListener('contextmenu', (e) => e.preventDefault()); // 涂抹途中不弹右键/文字选择菜单
 
   function renderTitle() {

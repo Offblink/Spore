@@ -34,9 +34,15 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["src/lib/md.js", "src/content/drawer.js"],
+      "js": ["src/lib/katex/katex.min.js", "src/lib/md.js", "src/content/drawer.js"],
       "run_at": "document_idle",
       "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/lib/katex/katex.min.css", "src/lib/katex/fonts/*"],
+      "matches": ["<all_urls>"]
     }
   ],
   "options_ui": {

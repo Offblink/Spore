@@ -3,6 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <title>Spore · 搜题记录</title>
+    <!-- KaTeX：md.js 的公式渲染产物（.katex）吃这份样式，字体相对本 CSS 解析 -->
+    <link rel="stylesheet" href="src/lib/katex/katex.min.css" />
     <style>
       :root {
         --accent: #ec4899;
@@ -202,7 +204,6 @@
         margin-top: 8px; background: #fff1f2; border: 1px solid #f7d7dc; color: #c81e45;
         border-radius: 9px; padding: 7px 10px; font-size: 13.5px;
       }
-      .math { font-family: 'Cambria Math', 'Latin Modern Math', Georgia, serif; font-style: italic; color: #20244a }
       .msg code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 14px; background: #f4f6fd; border: 1px solid #eef0f8; border-radius: 5px; padding: 0 4px }
       .msg a { color: #c2185b; text-decoration: none; border-bottom: 1px solid #f7c8da }
       .msg strong { font-weight: 650; color: #14172a }
@@ -428,6 +429,7 @@
       </div>
     </div>
     <div id="toasts"></div>
+    <script src="src/lib/katex/katex.min.js"></script>
     <script src="src/lib/md.js"></script>
     <script src="src/review.js"></script>
   </body>

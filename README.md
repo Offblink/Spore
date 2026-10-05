@@ -63,7 +63,7 @@ Alt+S 框选截图 → 网页右缘自动弹出抽屉 → **先快答，再联�
 python tests/e2e.py
 ```
 
-Playwright + 本机 Edge **无头**跑 217 项断言（截图链路、两阶段作答、`<<ok>>` 守卫、异步起名、
+Playwright + 本机 Edge **无头**跑 233 项断言（截图链路、两阶段作答、`<<ok>>` 守卫、异步起名、
 半圆小角内外翻转、气泡显隐、收藏（品牌粉 / 只标记不置顶 / 有提示）、删除与重命名后列表保持、
 点截图不开新页、滚动不跟随、CoT、追问（含**追问里真的调检索**：日志行 + 工具 chip + 不推说查不了）、
 0 下载、FSA 写盘能力、设置页索引直通整页、
@@ -72,6 +72,9 @@ Playwright + 本机 Edge **无头**跑 217 项断言（截图链路、两阶段�
 **科目（新建 → 空科目弹（空）→ 真拖会话归入 → 改名 → 拖出 → 删科目留会话）**、
 **涂抹多选（点 head「批量选择」按钮进模式·0 选起手 → 单选框涂抹跨行 / 折返换向 → 批量收藏·移入科目·删除，
 底栏取消 / Escape / 换筛选 / 按钮再点四条退出路）**、
+**涂抹贴边自动滚动 #list（贴下缘连续滚 → 笔尖回中部停 → pointerup 收笔必停；播种超长列表，全确定性）**、
+**LaTeX 渲染（`$$..$$`/`$..$`/`\[..\]`/`\(..\)` 四类分隔符出 `.katex`，`$2+2=4$` 算公式、价格 `$5` 不被吞、
+坏公式原样显示源码；整页与抽屉 Shadow DOM 两面共用一份 `md.js`）**、
 **拖入图片 URL（两处 composer 的 dragover 兜底 / 非 http(s) 忽略并提示 / 拉非图不建会话 / 真图建会话且消息带图）**），
 全绿退出码 0，
 现场截图留在 `tests/_shots/`。跑之前会先过一遍离线契约：`node --test tests/search.test.mjs`
@@ -104,7 +107,8 @@ src/
     tools.js             web_search（引擎链 ddg→bing→brave + 三道闸；bing 腿 RSS 主 + HTML 回落）/ web（正文抓取）
     store.js             会话存储（chrome.storage.local）+ Downloads 镜像
     agent.js             两阶段作答 + 异步起名 + 追问（追问带同一套检索工具循环）
-    md.js                markdown/转义纯函数（抽屉与整页审查共用一份语义）
+    md.js                markdown/转义 + LaTeX（KaTeX）纯函数（抽屉与整页审查共用一份语义）
+    katex/               KaTeX 0.19 随包资产（katex.min.js / katex.min.css / fonts，无 CDN 依赖）
   content/
     drawer.js            抽屉（Shadow DOM）：消息流、会话列表、toast、滚动策略
     overlay.js           框选层（冻结帧 + 遮罩 + 尺寸标签）
