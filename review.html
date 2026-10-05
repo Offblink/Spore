@@ -39,13 +39,20 @@
       }
       .seg-b:hover { color: var(--text) }
       .seg-b.on { background: #fff; color: var(--text); box-shadow: 0 1px 4px rgba(20, 24, 48, 0.1) }
-      #newSub {
-        display: block; width: 100%; margin-top: 8px; padding: 7px 0;
+      /* ---- head 下沿两枚并排：新建科目 / 批量选择（多选模式的唯一入口） ---- */
+      .sb-acts { display: flex; gap: 6px; margin-top: 8px }
+      #newSub, #selBtn {
+        flex: 1; min-width: 0; padding: 7px 0;
         border: 1px dashed #d9dcec; border-radius: 10px; background: #fbfcff;
         color: #6b7191; font: 600 13px/1.4 inherit; cursor: pointer;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         transition: background 0.15s, color 0.15s, border-color 0.15s;
       }
-      #newSub:hover { background: #fff0f7; border-color: var(--accent); color: var(--accent2) }
+      #newSub:hover, #selBtn:hover { background: #fff0f7; border-color: var(--accent); color: var(--accent2) }
+      /* 模式里按钮自己换文案与配色（点它退出），排在 hover 之后才压得住 */
+      #selBtn.on, #selBtn.on:hover {
+        background: var(--accent); border: 1px solid var(--accent); color: #fff;
+      }
       #list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px }
       .row {
         position: relative; display: flex; align-items: center; gap: 10px;
@@ -210,7 +217,7 @@
       .row .r:hover { background: #eef1fa; color: var(--accent) }
       .row .x:hover { background: #fdecef; color: #d02747 }
 
-      /* ---- 多选模式（长按进、单选框涂抹，照移动端 record.js 移植）：
+      /* ---- 多选模式（侧栏 head 的「批量选择」按钮进、单选框涂抹，照移动端 record.js 移植）：
              单选框只在模式里现身、排在行首（与 ★/✎/×、红点 .d 共存）；
              涂抹只认单选框起笔（touch-action:none 在这儿把拖动让给涂抹） ---- */
       .row .ck {
@@ -223,7 +230,7 @@
       #list.sel .row.on { background: #fff0f7 }
       #list.sel .row.on .ck { background: var(--accent); border-color: var(--accent); color: #fff }
 
-      /* ---- 批量底栏（多选模式贴侧栏底；隐藏常态，进模式才浮出；侧栏 head 不动） ---- */
+      /* ---- 批量底栏（多选模式贴侧栏底；隐藏常态，进模式才浮出；入口在 head 的 #selBtn） ---- */
       #batchbar {
         flex: none; display: flex; align-items: center; gap: 6px;
         padding: 10px 8px calc(10px + env(safe-area-inset-bottom));
@@ -351,7 +358,10 @@
             <button class="seg-b on" data-filter="all" type="button">全部</button>
             <button class="seg-b" data-filter="fav" type="button">收藏</button>
           </div>
-          <button id="newSub" type="button" title="新建科目（目录），把会话拖进去归类">＋ 新建科目</button>
+          <div class="sb-acts">
+            <button id="newSub" type="button" title="新建科目（目录），把会话拖进去归类">＋ 新建科目</button>
+            <button id="selBtn" type="button" title="进入批量选择：勾选多条会话后批量收藏 / 移入科目 / 删除">批量选择</button>
+          </div>
         </div>
         <div id="list"></div>
         <footer id="batchbar" hidden>

@@ -24,19 +24,12 @@
     pendingDelete: null,
     pendingRename: null,
     dragSid: null, // 正被拖动的会话 id
-    selecting: false, // 多选模式（长按进；sel class 挂在 #list 上，底栏 #batchbar 随之浮出）
+    selecting: false, // 多选模式（head 的 #selBtn 进/退；sel class 挂在 #list 上，底栏 #batchbar 随之浮出）
     selected: new Set(), // 选中的会话 id（renderList 重绘时按它回放 .on）
     pendingPick: null, // 移入科目弹层的目标会话 id 数组（null = 弹层关着）
   };
-  // 多选手势（照移动端 record.js 移植）：长按 500ms 进模式；单选框起笔涂抹连选
-  const HOLD_MS = 500; // 长按进多选的判定时长
-  const SLOP = 10; // px：超过就算「动了」（滚动/拖拽），不算长按
-  let suppressClick = false; // 长按进模式或涂抹收笔后的那次 click 要吃掉
-  let holdTimer = 0; // 长按定时器（0 = 没挂着）
-  let holdRow = null; // 长按落点卡
-  let holdX = 0;
-  let holdY = 0;
-  let held = false; // 本笔长按已触发（收笔的 click 要吃掉）
+  // 多选手势（照移动端 record.js 移植）：批量选择按钮进模式（0 选起手）；单选框起笔涂抹连选
+  let suppressClick = false; // 涂抹收笔后的那次 click 要吃掉
   let paint = null; // 本笔涂抹 {seg, prev, dx, dir, moved}
   // 历史会反复重绘（回合内 1.2s 落盘一次），图片按 key 缓存，别每次都去 storage 捞几百 KB
   const imgCache = new Map();
@@ -193,12 +186,18 @@
   function renderList() {
     const box = $('#list');
     if (!box) return;
-    // 选中集按现有会话裁剪：删掉的/不在库里的不再算选中；裁空就直接退多选
-    //（storage.onChanged 的重绘也走这条路，同一口径）
+    // 选中集按现有会话裁剪：删掉的/不在库里的不再算选中；被裁到一个不剩才退多选
+    //（storage.onChanged 的重绘也走同一口径；0 选起手进模式时没裁到东西，不许被这条踢出去）
     if (state.selecting) {
       const valid = new Set(state.index.map((e) => e.id));
-      for (const id of [...state.selected]) if (!valid.has(id)) state.selected.delete(id);
-      if (!state.selected.size) setSelecting(false);
+      let cropped = false;
+      for (const id of [...state.selected]) {
+        if (!valid.has(id)) {
+          state.selected.delete(id);
+          cropped = true;
+        }
+      }
+      if (cropped && !state.selected.size) setSelecting(false);
     }
     const keep = box.scrollTop;
     box.innerHTML = '';
@@ -247,6 +246,13 @@
     $('#list').classList.toggle('sel', on);
     const bar = $('#batchbar');
     if (bar) bar.hidden = !on;
+    // 入口按钮自己换文案与配色：模式里点它 = 退出
+    const btn = $('#selBtn');
+    if (btn) {
+      btn.textContent = on ? '退出选择' : '批量选择';
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
     syncSelChrome();
   }
 
@@ -344,7 +350,7 @@
     openSession(row.dataset.sid);
   });
 
-  // ---- 多选手势（照移动端 record.js 移植）：长按进模式；单选框起笔涂抹 ----
+  // ---- 多选手势（照移动端 record.js 移植）：模式由 #selBtn 进入（0 选起手），单选框起笔涂抹 ----
   // 语义：从某个单选框开始拖 = 涂抹，选中「段起点 → 笔尖所在卡」之间全部；起笔卡已选 →
   // 本笔先取消；中途折返即换向（方向翻转、新段从拐点起算）。卡片其余区域的拖动留给
   // 滚动/拖科目；.ck 上的 pointerdown 必须 preventDefault —— 行是 draggable，不拦会触发 dragstart。
@@ -358,35 +364,11 @@
       const idx = rowsArr().indexOf(row);
       paint = { seg: idx, prev: idx, dx: 0, dir: !state.selected.has(row.dataset.sid), moved: false };
       e.preventDefault();
-      return;
     }
-    if (state.selecting) return; // 模式里卡片区域：点选交给 click，拖动留给滚动/拖科目
-    // 非模式：挂长按（越过 slop 即撤，别把滚动/拖拽误判成长按）
-    holdRow = row;
-    holdX = e.clientX;
-    holdY = e.clientY;
-    held = false;
-    holdTimer = setTimeout(() => {
-      holdTimer = 0;
-      held = true;
-      setSelecting(true);
-      setRowSel(row.dataset.sid, true);
-      holdRow = null;
-    }, HOLD_MS);
   });
 
   listBox.addEventListener('pointermove', (e) => {
     if (!e.isPrimary) return;
-    if (holdTimer) {
-      const dx = e.clientX - holdX;
-      const dy = e.clientY - holdY;
-      if (dx * dx + dy * dy > SLOP * SLOP) {
-        clearTimeout(holdTimer);
-        holdTimer = 0;
-        holdRow = null; // 动了 = 滚动/拖拽手势，长按作废
-      }
-      return;
-    }
     if (paint && state.selecting) {
       const over = rowUnder(e.clientX, e.clientY);
       if (over) {
@@ -409,11 +391,6 @@
   });
 
   function endStroke() {
-    if (holdTimer) {
-      clearTimeout(holdTimer);
-      holdTimer = 0;
-      holdRow = null;
-    }
     if (paint) {
       if (paint.moved) {
         suppressClick = true; // 涂抹收笔那下别再触发 click
@@ -424,10 +401,6 @@
         suppressClick = true;
       }
       paint = null;
-    }
-    if (held) {
-      suppressClick = true; // 长按进模式的那笔，收尾 click 不能把刚勾上的又翻回去
-      held = false;
     }
   }
 
@@ -440,7 +413,7 @@
       suppressClick = false; // cancel 后没有 click，别把标志留给下一笔
     }
   });
-  listBox.addEventListener('contextmenu', (e) => e.preventDefault()); // 长按不弹右键/文字选择菜单
+  listBox.addEventListener('contextmenu', (e) => e.preventDefault()); // 涂抹途中不弹右键/文字选择菜单
 
   function renderTitle() {
     const hit = state.index.find((e) => e.id === state.sid);
@@ -706,6 +679,34 @@
     post({ type: 'stop', sid: state.sid });
   });
 
+  // ---- 拖入图片 URL：把网页里的图拖到输入框 = 当作截屏回合（SW fetch-image → 起回合） ----
+  // dragover 必须 preventDefault，否则浏览器会把图片 URL 当导航直接打开（整页与抽屉同一套）
+  const pickImageUrl = (dt) => {
+    if (!dt) return '';
+    const uri = (dt.getData('text/uri-list') || '')
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .find((s) => s && !s.startsWith('#'));
+    if (uri) return uri;
+    const hit = (dt.getData('text/html') || '').match(/<img[^>]*?src\s*=\s*["']([^"']+)["']/i);
+    if (hit) return hit[1];
+    return (dt.getData('text/plain') || '').trim();
+  };
+  $('#composer').addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  $('#composer').addEventListener('drop', (e) => {
+    e.preventDefault();
+    const url = pickImageUrl(e.dataTransfer);
+    if (!/^https?:\/\//i.test(url)) {
+      showToast({ title: '拖进来的图片打不开', text: '只支持 http(s) 的图片链接' });
+      return;
+    }
+    post({ type: 'fetch-image', url });
+    showToast({ title: '正在读取图片', text: url.length > 70 ? url.slice(0, 70) + '…' : url });
+  });
+
   // ---------------------------------------------------------------- 删除 / 重命名（复制自抽屉）
   // pendingDelete 分两种：{ kind:'sess' } 删会话、{ kind:'sub' } 删科目（会话只是移出，一个都不删）
   function askDelete(sid, title) {
@@ -819,6 +820,8 @@
   });
 
   // ---- 多选批量操作（底栏）：全走已有 post 协议，批量收藏只弹一条 toast ----
+  // 入口：head 的「批量选择」按钮（0 选起手），模式里它自己变成「退出选择」
+  $('#selBtn').addEventListener('click', () => setSelecting(!state.selecting));
   $('#selCancel').addEventListener('click', () => setSelecting(false));
 
   /** 批量收藏：全已收藏 → 这次统一取消；否则把没收藏的都收上（单条 toggleFav 会 N 连弹，不能复用） */

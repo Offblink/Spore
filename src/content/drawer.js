@@ -1168,6 +1168,34 @@
   });
   $('#send').addEventListener('click', send);
 
+  // ---- 拖入图片 URL：把网页里的图拖到抽屉输入框 = 当作截屏回合（SW fetch-image → 起回合） ----
+  // dragover 必须 preventDefault，否则浏览器会把图片 URL 当导航直接打开（与整页 #composer 同一套）
+  const pickImageUrl = (dt) => {
+    if (!dt) return '';
+    const uri = (dt.getData('text/uri-list') || '')
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .find((s) => s && !s.startsWith('#'));
+    if (uri) return uri;
+    const hit = (dt.getData('text/html') || '').match(/<img[^>]*?src\s*=\s*["']([^"']+)["']/i);
+    if (hit) return hit[1];
+    return (dt.getData('text/plain') || '').trim();
+  };
+  $('#composer').addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  $('#composer').addEventListener('drop', (e) => {
+    e.preventDefault();
+    const url = pickImageUrl(e.dataTransfer);
+    if (!/^https?:\/\//i.test(url)) {
+      showToast({ title: '拖进来的图片打不开', text: '只支持 http(s) 的图片链接', failed: true });
+      return;
+    }
+    post({ type: 'fetch-image', url });
+    showToast({ title: '正在读取图片', text: url.length > 70 ? url.slice(0, 70) + '…' : url });
+  });
+
   // ------------------------------------------------------------------ toast
   function showToast({ sid, title, text, failed }) {
     const el = document.createElement('div');

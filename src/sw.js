@@ -7,6 +7,9 @@ import { searchPlan, setSearchProxy, toolWebSearch } from './lib/tools.js';
 
 const MAX_CROP_LONG = 1600;
 const JPEG_QUALITY = 0.82;
+/** 拖入图片 URL 的下载约束（超时/体积上限） */
+const FETCH_IMAGE_TIMEOUT = 15000;
+const MAX_FETCH_IMAGE = 20 * 1024 * 1024;
 
 /** @type {Set<chrome.runtime.Port>} */
 const ports = new Set();
@@ -309,6 +312,56 @@ async function captureFlow() {
   await startTurn(sess.id);
 }
 
+/**
+ * 拖入图片 URL → 当成截屏回合：拉图（15s 超时、20MB 上限、Content-Type 必须 image/*）
+ * → 建会话落图起跑。与 captureFlow 的差别只是「没有框选」——跳过「框太小」判定，
+ * 抓到的图直接当第一张截图；存储照走同一条路（putImage 独立键 + mirrorImage/mirrorSession）。
+ * 回合本身用 void 起跑：消息通道不为一个跑几分钟的模型回合一直开着。
+ */
+async function fetchImageTurn(url, tabId = null) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), FETCH_IMAGE_TIMEOUT);
+  let blob;
+  try {
+    const res = await fetch(url, { signal: ctl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const len = Number(res.headers.get('content-length') || 0);
+    if (len > MAX_FETCH_IMAGE) throw new Error(`图片超过 ${MAX_FETCH_IMAGE / 1024 / 1024}MB`);
+    blob = await res.blob();
+  } catch (e) {
+    const why = e?.name === 'AbortError' ? `下载超时（${FETCH_IMAGE_TIMEOUT / 1000}s）` : String(e?.message || e);
+    throw new Error(`图片下载失败：${why}`);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (blob.size > MAX_FETCH_IMAGE) throw new Error(`图片超过 ${MAX_FETCH_IMAGE / 1024 / 1024}MB`);
+  const type = String(blob.type || '');
+  if (!type.startsWith('image/')) throw new Error(`不是图片（${type || '没有 Content-Type'}）`);
+  const image = `data:${type};base64,${toBase64(new Uint8Array(await blob.arrayBuffer()))}`;
+
+  const sess = await store.createSession({ title: store.stampTitle() });
+  store.logEvent(`fetch-image: 新会话 ${sess.id} type=${type} bytes=${blob.size}`);
+  const imageKey = await store.putImage(sess.id, 0, image);
+  sess.messages.push({ role: 'user', ts: Date.now(), imageKey, text: '' });
+  sess.status = 'answering';
+  await store.saveSession(sess);
+  try {
+    const channel = await mirrorChannel();
+    if (channel.on) {
+      await store.mirrorImage(sess, 0, image, { allowDownload: channel.allowDownload });
+      // 先落一版「只有图片」的 md，回答完成后再覆盖（与截屏回合同构）
+      store.mirrorSession(sess, { allowDownload: channel.allowDownload }).catch(() => {});
+    }
+  } catch (e) {
+    console.warn('[spore] image mirror failed', e);
+  }
+  await updateBadge();
+
+  const delivered = broadcast({ type: 'session-created', sid: sess.id, tabId }, tabId);
+  console.log(`[spore] fetch-image session-created ${sess.id} → ${delivered} port(s), tabId=${tabId}`);
+  startTurn(sess.id).catch((e) => console.error('[spore] fetch-image startTurn failed', e));
+}
+
 async function cropShot(shot, rect) {
   const blob = await (await fetch(shot)).blob();
   const bmp = await createImageBitmap(blob);
@@ -453,6 +506,23 @@ async function handleContent(msg, port) {
       if (Date.now() - lastCaptureAt < 400) return;
       lastCaptureAt = Date.now();
       void captureFlow().catch((e) => console.error('[spore] capture failed', e));
+      return;
+    }
+
+    case 'fetch-image': {
+      // 拖进输入框的图片 URL（抽屉与整页 composer 两处入口）：拉回来当截屏回合
+      const tabId = senderTab ?? null;
+      const url = String(msg.url || '').trim();
+      try {
+        if (!/^https?:\/\//i.test(url)) throw new Error('只支持 http(s) 的图片地址');
+        store.logEvent(`fetch-image: ${url}`);
+        await fetchImageTurn(url, tabId);
+      } catch (e) {
+        const why = String((e && e.message) || e).slice(0, 200);
+        store.logEvent(`fetch-image 失败: ${why}`);
+        broadcast({ type: 'toast', sid: null, title: '读取图片失败', text: why, failed: true }, tabId);
+        throw e; // 端口与 sendMessage 两条通道都要拿到失败
+      }
       return;
     }
 

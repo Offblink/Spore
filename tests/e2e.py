@@ -8,7 +8,9 @@
 异步起名 → 半圆小角收起弹出（内压/外凸）→ 会话气泡点击列表（悬停不触发）→ 顶栏 ★ 收藏（品牌粉、
 只标记不置顶、有提示）→ 删除/重命名后列表保持 → 滚动不跟随 → CoT 思考块 → 追问 → 0 下载（静默镜像）
 → FSA 写盘能力 → 设置页搜题记录首块 + 整页审查（筛选 / 列表收放 / hash 定位）+
-涂抹多选（长按进模式 / 单选框涂抹与折返换向 / 批量收藏·移入科目·删除 / 底栏取消·Escape·换筛选三条退出路）。
+涂抹多选（「批量选择」按钮进模式·0 选起手 / 单选框涂抹与折返换向 / 批量收藏·移入科目·删除 /
+底栏取消·Escape·换筛选·按钮再点四条退出路）+ 拖入图片 URL 读取（两处 composer 的 dragover 兜底 /
+非 http(s) 忽略并提示 / 拉非图不建会话 / 真图建会话且消息带图）。
 全部断言通过时退出码为 0；失败会把现场截图留在 tests/_shots/。
 """
 
@@ -1495,23 +1497,20 @@ def main():
                 def ms_n():
                     return rev.evaluate("() => document.querySelectorAll('#list .row').length")
 
-                def ms_hold(row_idx):
-                    """长按某行 700ms（进多选的唯一入口）"""
-                    b = rev.locator("#list .row").nth(row_idx).bounding_box()
-                    rev.mouse.move(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2)
-                    rev.mouse.down()
-                    rev.wait_for_timeout(700)
-                    rev.mouse.up()
-                    rev.wait_for_timeout(300)
+                def ms_enter():
+                    """点 head 的「批量选择」按钮进多选（唯一入口，0 选起手）"""
+                    rev.click("#selBtn")
+                    rev.wait_for_timeout(250)
 
-                # 常态：单选框不现身、批量底栏收起
+                # 常态：单选框不现身、批量底栏收起、入口按钮还是「批量选择」
                 check(
-                    "多选常态：单选框隐藏、批量底栏收起",
+                    "多选常态：单选框隐藏、批量底栏收起、按钮是「批量选择」",
                     rev.evaluate(
                         "() => getComputedStyle(document.querySelector('#list .row .ck')).display === 'none'"
                         " && document.getElementById('batchbar').hidden"
+                        " && document.getElementById('selBtn').textContent === '批量选择'"
                     ),
-                    "ck none + batchbar hidden",
+                    "ck none + batchbar hidden + btn 批量选择",
                 )
                 # 铺路：建一个科目并展开（批量移入要科目可选；块尾删掉还原前置状态）
                 rev.click("#newSub")
@@ -1528,7 +1527,7 @@ def main():
                     f"rows={ms_n()}",
                 )
 
-                # 长按**非当前**会话 700ms 进多选：选中被按那张、收尾 click 被吃掉（没打开会话）
+                # 点「批量选择」进多选：0 选起手（不自动勾任何卡），再点卡片勾选
                 idx_a = rev.evaluate(
                     """() => {
                         const rows = [...document.querySelectorAll('#list .row')];
@@ -1538,20 +1537,32 @@ def main():
                 )
                 idx_o = 1 - idx_a
                 active_before = ms_active()
-                ms_hold(idx_a)
+                ms_enter()
+                cnt0 = rev.evaluate("() => document.getElementById('selCount').textContent")
                 check(
-                    "长按 700ms 进多选（#list.sel + 底栏浮出）",
-                    ms_sel() and not rev.evaluate("() => document.getElementById('batchbar').hidden"),
-                    "sel + batchbar",
+                    "点 #selBtn 进多选：#list.sel + 底栏浮出 + 0 选起手（批量三件禁用）",
+                    ms_sel()
+                    and not rev.evaluate("() => document.getElementById('batchbar').hidden")
+                    and cnt0 == "已选 0 项"
+                    and not any(r["on"] for r in ms_rows())
+                    and rev.evaluate("() => ['bFav','bMove','bDel'].every((id) => document.getElementById(id).disabled)"),
+                    f"sel={ms_sel()} count={cnt0} on={ms_rows()}",
                 )
+                btn_txt = rev.evaluate("() => document.getElementById('selBtn').textContent")
+                check("模式里入口按钮文案变「退出选择」", btn_txt == "退出选择", btn_txt)
+
+                # 模式内点卡片 = 勾选（不打开会话）
+                rev.locator("#list .row").nth(idx_a).locator(".t").click()
+                rev.wait_for_timeout(200)
                 onv = [r["on"] for r in ms_rows()]
-                check("长按选中的是被按那张卡", onv == [i == idx_a for i in range(len(onv))], f"on={onv} idx={idx_a}")
+                check("模式内点卡片勾上的是被点那张（0 → 1）", onv == [i == idx_a for i in range(len(onv))], f"on={onv} idx={idx_a}")
+                cnt_txt = rev.evaluate("() => document.getElementById('selCount').textContent")
                 check(
                     "底栏计数「已选 1 项」",
-                    rev.evaluate("() => document.getElementById('selCount').textContent") == "已选 1 项",
-                    rev.evaluate("() => document.getElementById('selCount').textContent"),
+                    cnt_txt == "已选 1 项",
+                    cnt_txt,
                 )
-                check("长按的收尾 click 被吃掉（没打开会话）", ms_active() == active_before, f"{ms_active()} vs {active_before}")
+                check("点卡片不切换会话（active 不变）", ms_active() == active_before, f"{ms_active()} vs {active_before}")
                 check(
                     "模式里单选框现身（.ck display:flex）",
                     rev.evaluate("() => getComputedStyle(document.querySelector('#list .row .ck')).display") == "flex",
@@ -1669,7 +1680,7 @@ def main():
                     "cancelled",
                 )
 
-                # 退出多选三条路：底栏「取消」/ Escape / 模式里换筛选
+                # 退出多选四条路：入口按钮再点 / 底栏「取消」/ Escape / 模式里换筛选
                 rev.click("#selCancel")
                 rev.wait_for_timeout(250)
                 check(
@@ -1677,17 +1688,29 @@ def main():
                     not ms_sel()
                     and rev.evaluate("() => document.getElementById('batchbar').hidden")
                     and not any(r["on"] for r in ms_rows())
-                    and rev.evaluate("() => getComputedStyle(document.querySelector('#list .row .ck')).display === 'none'"),
+                    and rev.evaluate("() => getComputedStyle(document.querySelector('#list .row .ck')).display === 'none'")
+                    and rev.evaluate("() => document.getElementById('selBtn').textContent === '批量选择'"),
                     "exited",
                 )
 
-                ms_hold(idx_a)
+                # 入口按钮自己也是退出路：进模式后它写着「退出选择」，再点一下就退
+                ms_enter()
+                entered = ms_sel() and rev.evaluate("() => document.getElementById('selBtn').textContent") == "退出选择"
+                rev.click("#selBtn")
+                rev.wait_for_timeout(250)
+                check(
+                    "模式里再点 #selBtn（「退出选择」）退出多选",
+                    entered and not ms_sel() and rev.evaluate("() => document.getElementById('selBtn').textContent") == "批量选择",
+                    f"entered={entered}",
+                )
+
+                ms_enter()
                 entered = ms_sel()
                 rev.keyboard.press("Escape")
                 rev.wait_for_timeout(250)
                 check("Escape 退出多选（模态链之后）", entered and not ms_sel(), f"entered={entered}")
 
-                ms_hold(idx_a)
+                ms_enter()
                 entered = ms_sel()
                 rev.click('.seg-b[data-filter="fav"]')
                 rev.wait_for_timeout(300)
@@ -1883,6 +1906,106 @@ def main():
             check("整页删除生效（索引清空）", len(left) == 0, len(left))
             empty_txt = rev2.evaluate("() => (document.querySelector('#list .empty') || {}).textContent || ''")
             check("整页列表进空态", "还没有搜题记录" in empty_txt, empty_txt[:40])
+
+            # ---------------- 拖入图片 URL 读取（fetch-image）：输入框拖图 = 当作截屏回合 ----------------
+            # ① 两处入口的 dragover 必须 preventDefault，否则浏览器会把图片 URL 当导航直接打开
+            ok_do_rev = rev2.evaluate(
+                """() => {
+                    const dt = new DataTransfer();
+                    const ev = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt });
+                    document.getElementById('composer').dispatchEvent(ev);
+                    return ev.defaultPrevented;
+                }"""
+            )
+            check("整页 composer 的 dragover 被 preventDefault", ok_do_rev, ok_do_rev)
+            ok_do_drw = page.evaluate(
+                """() => {
+                    const sr = document.querySelector('spore-drawer').shadowRoot;
+                    const dt = new DataTransfer();
+                    const ev = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt });
+                    sr.getElementById('composer').dispatchEvent(ev);
+                    return ev.defaultPrevented;
+                }"""
+            )
+            check("抽屉 composer 的 dragover 被 preventDefault", ok_do_drw, ok_do_drw)
+
+            # ② 非 http(s) 地址：客户端就地忽略并提示，压根不惊动 SW
+            rev2.evaluate("() => document.getElementById('toasts').replaceChildren()")
+            rev2.evaluate(
+                """() => {
+                    const dt = new DataTransfer();
+                    dt.setData('text/uri-list', 'ftp://example.com/x.png');
+                    document.getElementById('composer').dispatchEvent(
+                        new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })
+                    );
+                }"""
+            )
+            rev2.wait_for_timeout(300)
+            inv_txt = rev2.evaluate("() => (document.querySelector('#toasts .toast .tb') || {}).textContent || ''")
+            idx_now = sw.evaluate("async () => (await chrome.storage.local.get('spore.index'))['spore.index'] || []")
+            check(
+                "拖非 http(s) 地址：忽略并提示、不建会话",
+                "只支持 http(s)" in inv_txt and len(idx_now) == 0,
+                f"{inv_txt!r} idx={len(idx_now)}",
+            )
+
+            # ③ SW 侧校验：http 但不是图（text/html）→ 报错且不建会话（sendMessage 同步等回执）
+            fail_res = rev2.evaluate(
+                """async (url) => {
+                    try {
+                        return { resp: await chrome.runtime.sendMessage({ type: 'fetch-image', url }) };
+                    } catch (e) {
+                        return { err: String((e && e.message) || e) };
+                    }
+                }""",
+                "http://127.0.0.1:8899/page.html",
+            )
+            idx_now = sw.evaluate("async () => (await chrome.storage.local.get('spore.index'))['spore.index'] || []")
+            fail_txt = str(fail_res.get("resp") or fail_res.get("err") or "")
+            check(
+                "fetch-image 拉非图 URL：SW 报错且不建会话",
+                "不是图片" in fail_txt and len(idx_now) == 0,
+                f"{fail_txt!r} idx={len(idx_now)}",
+            )
+
+            # ④ 真图片走产品路径（drop → 端口 → SW 起回合）：新会话建立、首条消息带图
+            rev2.evaluate(
+                """(url) => {
+                    const dt = new DataTransfer();
+                    dt.setData('text/uri-list', url);
+                    document.getElementById('composer').dispatchEvent(
+                        new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })
+                    );
+                }""",
+                "http://127.0.0.1:8899/tiny.png",
+            )
+            got = None
+            for _ in range(60):
+                rev2.wait_for_timeout(250)
+                got = rev2.evaluate(
+                    """async () => {
+                        const idx = (await chrome.storage.local.get('spore.index'))['spore.index'] || [];
+                        if (!idx.length) return null;
+                        const sid = idx[0].id;
+                        const s = (await chrome.storage.local.get('spore.sess.' + sid))['spore.sess.' + sid] || {};
+                        const m = (s.messages || [])[0] || {};
+                        const img = m.imageKey ? (await chrome.storage.local.get(m.imageKey))[m.imageKey] : null;
+                        return { n: idx.length, role: m.role || null, key: m.imageKey || null,
+                                 head: img ? String(img).slice(0, 11) : null };
+                    }"""
+                )
+                if got:
+                    break
+            check(
+                "拖入图片 URL → 新会话建立且首条消息带图",
+                bool(got)
+                and got.get("n") == 1
+                and got.get("role") == "user"
+                and bool(got.get("key"))
+                and got.get("head") == "data:image/",
+                got,
+            )
+            rev2.screenshot(path=str(SHOTS / "16-review-fetch-image.png"))
             rev2.close()
 
             ctx.close()
