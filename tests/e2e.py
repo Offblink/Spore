@@ -2395,14 +2395,56 @@ def main():
             )
             check("预填框落在题目上（与 p.q 重叠 ≥25%）", ok_geo, repr(geo))
 
-            # ③ 单击预填框 = 采纳：覆盖层收起、新会话建立
+            # ③ 采纳按钮 + 边界可拖（2026-10-09 拍板：右下角按钮采纳，废弃单击/回车）
             if prefilled and geo:
+                # a) 按钮跟着选区右下角出现
                 try:
-                    s = geo["sel"]
-                    page.mouse.click(s["x"] + s["w"] / 2, s["y"] + s["h"] / 2)
+                    acc = page.locator("#spore-accept")
+                    acc.wait_for(state="visible", timeout=5000)
+                    acc_box = acc.bounding_box()
+                    s0 = geo["sel"]
+                    # 选区盒带 2px 边框（bounding 含边框）、按钮按内部坐标定位 → 容差 8px：
+                    # 期望 = 选区右缘 - 按钮宽、下缘 + 6
+                    near_br = (
+                        bool(acc_box)
+                        and abs(acc_box["x"] - (s0["x"] + s0["w"] - 56)) <= 8
+                        and abs(acc_box["y"] - (s0["y"] + s0["h"] + 6)) <= 8
+                    )
+                    check("预填后右下角出现「采纳」按钮", near_br, f"btn={acc_box} sel={s0}")
+                except Exception as e:  # noqa: BLE001
+                    acc_box = None
+                    check("预填后右下角出现「采纳」按钮", False, f"{type(e).__name__}: {e}")
+
+                # b) 拖左边界：选区变窄，且**不**提交（覆盖层还在）。
+                #    刻意往**里**拖：建议框可能已被 clampX 顶到视口右边，
+                #    朝墙外拖是 no-op（产品对、断言假红），所以选有余量的方向。
+                try:
+                    before = page.locator("#spore-sel-box").bounding_box()
+                    edge_y = before["y"] + before["height"] / 2
+                    page.mouse.move(before["x"], edge_y)
+                    page.mouse.down()
+                    page.mouse.move(before["x"] + 80, edge_y, steps=6)
+                    page.mouse.up()
+                    after = page.locator("#spore-sel-box").bounding_box()
+                    still_open = page.locator("#spore-overlay-root").count() > 0
+                    check(
+                        "拖左边界能把选区改小（边界可拖、松手不提交）",
+                        bool(after) and after["width"] <= before["width"] - 40 and still_open,
+                        f"{before['width']:.0f} -> {after['width'] if after else None} open={still_open}",
+                    )
+                except Exception as e:  # noqa: BLE001
+                    check("拖左边界能把选区改小（边界可拖、松手不提交）", False, f"{type(e).__name__}: {e}")
+
+                # c) 点「采纳」= 提交：覆盖层收起 + 新会话建立
+                #    按钮是 pointer-events:none（命中统一走 window 捕获监听），
+                #    Playwright 的 Locator.click 会判它「收不到事件」超时 → 按坐标点。
+                #    finish() 先移 DOM，SW 那边 cropShot → 建会话 → saveSession 还要一会儿，
+                #    一次读 index 会假红成 1 -> 1，所以轮询。
+                try:
+                    bb = page.locator("#spore-accept").bounding_box()
+                    assert bb, "采纳按钮没有几何尺寸"
+                    page.mouse.click(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2)
                     page.wait_for_selector("#spore-overlay-root", state="detached", timeout=10000)
-                    # 覆盖层收起只是 finish() 的第一步，SW 那边还有一整段
-                    # （after-capture → cropShot → 建会话 → 落图 → saveSession）才写 index，轮询等它
                     idx_after = []
                     for _ in range(40):
                         idx_after = sw.evaluate(
@@ -2412,14 +2454,16 @@ def main():
                             break
                         page.wait_for_timeout(250)
                     check(
-                        "单击预填框采纳（覆盖层收起 + 建会话）",
+                        "点「采纳」提交选区（覆盖层收起 + 建会话）",
                         len(idx_after) == len(idx_before) + 1,
                         f"{len(idx_before)} -> {len(idx_after)}",
                     )
                 except Exception as e:  # noqa: BLE001
-                    check("单击预填框采纳（覆盖层收起 + 建会话）", False, f"{type(e).__name__}: {e}")
+                    check("点「采纳」提交选区（覆盖层收起 + 建会话）", False, f"{type(e).__name__}: {e}")
             else:
-                check("单击预填框采纳（覆盖层收起 + 建会话）", False, "预填没出现，跳过点击")
+                check("预填后右下角出现「采纳」按钮", False, "预填没出现，跳过")
+                check("拖左边界能把选区改小（边界可拖、松手不提交）", False, "预填没出现，跳过")
+                check("点「采纳」提交选区（覆盖层收起 + 建会话）", False, "预填没出现，跳过")
 
             # 关回默认：别把开关留在开态（后续会话不受识别链路影响）
             sw.evaluate(

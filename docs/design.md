@@ -172,7 +172,7 @@ Mobile 是源头（ML Kit 中文识别 + `overlay/Suggestor.java`），本轮把
 | 识别器挂死不能毒化后续 | 即便 CSP 修好，`createWorker` 仍是「一次失败永久 pending」的形状 → `worker()` 用 8s `Promise.race` 兜底：超时丢弃实例、**晚到的成功就地 `terminate()` 不留孤儿**，下一轮重新建 |
 | 行框在哪 | `recognize()` 的 `defaultOutput.blocks = false` → **必须显式传 `{ blocks: true }`**，否则 `data.blocks` 是 null。路径 `data.blocks[].paragraphs[].lines[].bbox{x0,y0,x1,y1}`，行 `text` 带尾换行 → 进 Suggestor 前 trim |
 | 时序：覆盖层先出、识别后补 | SW 发完 `spore:select` 立刻 `void maybeSuggest(tabId, shot)`（不阻塞），识别完补发 `spore:suggest`；覆盖层 `suggestSink` 收到时**已起手/已关就丢**，否则预填。坐标用分数（0..1）传：冻结帧是 `object-fit:fill` 铺满视口，分数 × `innerWidth/innerHeight` 即视口 CSS px，与 `cropShot` 的 `bmp.width / rect.viewportW` 同一套比例；OCR 侧先把帧缩到长边 ≤1600 再认，框按同一比例缩回 |
-| 与旧交互的边界 | 「起手保留 + 单击/回车采纳」**只对建议框来源的选区生效**（`sugSel` 标志）：手拖选区仍是起手即清，开关关着时与改动前逐字节一致 |
+| 与旧交互的边界 | 建议框是**两步**交互（2026-10-09 拍板，GUI 端同款）：**7 个缩放手柄**拖边界微调（8 方位里**右下角让给「采纳」按钮**）+ 点右下角粉底「采纳」提交；**单击框内 / 回车采纳已废弃**，框内空白的点按与拖动都不改不提交、框外起手才覆盖成手拖选区。手拖选区维持改动前语义（起手即清、**松手即采纳**），开关关着时与改动前逐字节一致 |
 
 实测（本机无头 Chromium 跑 vendor 的那几件资产）：worker 创建 314ms、全屏 1920×1080 帧识别 530ms。
 
