@@ -51,6 +51,9 @@ export const DEFAULT_SETTINGS = {
   // 浏览器自己已按系统代理路由，扩展没法只给检索换代理，这个字段决定的是「信任哪套引擎」。
   proxy: '',
   hideToggle: false, // 隐藏半圆小角（默认露出；隐藏后用 Alt+Z 唤出/收起抽屉）
+  // AI 建议框（2026-10-08，**默认关**）：Alt+S 抓帧后本地离线 OCR 出建议框预选，
+  // 识别失败/超时/已起手 → 静默退手动拖框。关着时不创建 offscreen 文档、零 OCR 调用。
+  mlSuggest: false,
   mirror: true, // 磁盘镜像开关
   mirrorRoot: 'Spore/sessions',
   // 没选静默目录时回落到下载（默认开：默认位置就是 Downloads，代价是 Edge 会弹下载列表；

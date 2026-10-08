@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Spore 识别（offscreen）</title>
+  </head>
+  <body>
+    <!--
+      ML 建议框的 OCR 宿主（offscreen document）。SW 只在 mlSuggest 开着时才创建本文档，
+      关着时它根本不存在 → 默认零开销。为什么放这儿：SW 里没有 createObjectURL 也起不了 Worker；
+      content script 的 Worker 归页面 origin，chrome-extension:// 资源够不着。
+      offscreen 是扩展自己的同源页面（manifest 需 offscreen 权限），Worker / 本地资源 / wasm 全可用。
+
+      三个脚本都是本地经典脚本、零 CDN：主库 tesseract.min.js → 建议框算法 suggestor.js → 本文档逻辑。
+      worker 脚本、core wasm、chi_sim 语言包由 offscreen.js 按 chrome-extension:// URL 传给主库。
+    -->
+    <script src="src/lib/tesseract/tesseract.min.js"></script>
+    <script src="src/lib/suggestor.js"></script>
+    <script src="src/offscreen.js"></script>
+  </body>
+</html>

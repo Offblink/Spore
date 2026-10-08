@@ -1,6 +1,6 @@
 // 设置页：读/写 spore.settings，顺带探测模型可达性与当前快捷键。
 const FIELDS = ['endpoint', 'apiKey', 'model', 'maxToolRounds', 'historyLimit', 'mirrorRoot', 'proxy'];
-const CHECKS = ['mirror', 'mirrorDownloads', 'fastNoThink', 'autoVerify', 'hideToggle'];
+const CHECKS = ['mirror', 'mirrorDownloads', 'fastNoThink', 'autoVerify', 'hideToggle', 'mlSuggest'];
 
 const $ = (id) => document.getElementById(id);
 /** 写文本：元素缺席就跳过。一个 null.textContent 不该打断整页初始化 */
@@ -48,6 +48,7 @@ async function save() {
     fastNoThink: $('fastNoThink').checked,
     autoVerify: $('autoVerify').checked,
     hideToggle: $('hideToggle').checked,
+    mlSuggest: $('mlSuggest').checked,
     mirrorRoot: $('mirrorRoot').value.trim() || 'Spore/sessions',
   };
   const mod = await import('./src/lib/store.js');
@@ -232,7 +233,7 @@ setInterval(renderLog, 4000);
 
 
 // ---------------- 分页：左边索引，右边一次一页 ----------------
-const SECTIONS = ['model', 'mirror', 'keys', 'log'];
+const SECTIONS = ['model', 'mirror', 'keys', 'capture', 'log'];
 
 function showSec(name) {
   const pick = SECTIONS.includes(name) ? name : 'model';
@@ -259,7 +260,7 @@ showSec((location.hash || '').slice(1));
 
 // ---------------- 搜题记录：索引第一项，点了**直接新开整页** ----------------
 // 用户定位：抽屉只是「插件的身份」，option 才是应用的控制中枢 —— 所以入口摆在索引最上面、
-// 与下面四张设置卡之间留出间距；但它不做右侧分页，点它就是跳去整页审查。
+// 与下面五张设置卡之间留出间距；但它不做右侧分页，点它就是跳去整页审查。
 function openReview(sid) {
   const base = chrome.runtime.getURL('review.html');
   chrome.tabs.create({ url: base + (sid ? `#${sid}` : '') }).catch((e) => msg(String(e), 'bad'));

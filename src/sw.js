@@ -7,6 +7,8 @@ import { searchPlan, setSearchProxy, toolWebSearch } from './lib/tools.js';
 
 const MAX_CROP_LONG = 1600;
 const JPEG_QUALITY = 0.82;
+/** AI 建议框：识别超时（与 Mobile ML_TIMEOUT_MS 同值）→ 静默退手动拖框，不弹提示 */
+const ML_TIMEOUT_MS = 8000;
 /** 拖入图片 URL 的下载约束（超时/体积上限） */
 const FETCH_IMAGE_TIMEOUT = 15000;
 const MAX_FETCH_IMAGE = 20 * 1024 * 1024;
@@ -229,6 +231,73 @@ function requestRect(tabId) {
   });
 }
 
+// ------------------------------------------------------------------ AI 建议框（默认关）
+
+/** 只在 mlSuggest 开着时创建 offscreen 文档；关着时它根本不存在 → 默认零开销 */
+async function ensureOffscreen() {
+  try {
+    if (await chrome.offscreen.hasDocument()) return;
+  } catch {
+    /* hasDocument 不可用就往下走，createDocument 撞车再兜 */
+  }
+  try {
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['WORKERS'], // 官方释义：该文档需要 spawn worker（tesseract 的识别线程）
+      justification: '在后台线程跑本地 OCR，识别截图里的题目区域',
+    });
+  } catch (e) {
+    // 并发触发时已有一个在 → 照常往下用
+    if (!String(e).includes('single offscreen')) throw e;
+  }
+}
+
+/** 发一发 OCR 请求；返回识别结果 / 'timeout' / 'no-receiver' / 'error' */
+async function ocrOnce(shot) {
+  const raced = await Promise.race([
+    chrome.runtime.sendMessage({ type: 'spore:ocr', shot }).catch((e) => `reject:${e}`),
+    new Promise((r) => setTimeout(() => r('timeout'), ML_TIMEOUT_MS)),
+  ]);
+  if (raced === 'timeout') return 'timeout';
+  if (typeof raced === 'string') {
+    return raced.includes('Receiving end') || raced.includes('reject') ? 'no-receiver' : 'error';
+  }
+  return raced; // { box } | { box: null }
+}
+
+/**
+ * AI 建议框：抓帧后异步识别 → 建议框补发给覆盖层。
+ * 覆盖层**先**出现（这里绝不阻塞 captureFlow 的 await 链），结果回来时用户可能已经起手/关掉，
+ * 那由覆盖层自己丢弃。开关关着（默认）→ 第一行返回：不建 offscreen、不发 OCR、零日志。
+ */
+async function maybeSuggest(tabId, shot) {
+  try {
+    const s = await store.getSettings();
+    if (s.mlSuggest !== true) return;
+    const t0 = Date.now();
+    store.logEvent('ml suggest: start');
+    await ensureOffscreen();
+    let res = await ocrOnce(shot);
+    if (res === 'no-receiver') {
+      // offscreen 刚建好、脚本还在加载 → 等它就绪补一次（这次不再占 8s 预算）
+      await new Promise((r) => setTimeout(r, 400));
+      res = await ocrOnce(shot);
+    }
+    if (typeof res === 'string') {
+      store.logEvent(`ml suggest: ${res} (${Date.now() - t0}ms)`);
+      return;
+    }
+    if (!res?.box) {
+      store.logEvent(`ml suggest: no text (${Date.now() - t0}ms)`);
+      return;
+    }
+    await chrome.tabs.sendMessage(tabId, { type: 'spore:suggest', box: res.box });
+    store.logEvent(`ml suggest: ok ${JSON.stringify(res.box)} (${Date.now() - t0}ms)`);
+  } catch (e) {
+    store.logEvent(`ml suggest failed: ${e && e.message}`);
+  }
+}
+
 async function captureFlow() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
@@ -269,6 +338,10 @@ async function captureFlow() {
     if (hadContent) await chrome.tabs.sendMessage(tabId, { type: 'spore:after-capture' }).catch(() => {});
     return;
   }
+
+  // AI 建议框（默认关）：覆盖层已经出来了，识别在后台异步跑，
+  // 结果回来补发 spore:suggest；用户这时候可能已经在拖了 → 由覆盖层自己丢弃
+  void maybeSuggest(tabId, shot);
 
   const rect = await waiter;
   if (hadContent) await chrome.tabs.sendMessage(tabId, { type: 'spore:after-capture' }).catch(() => {});

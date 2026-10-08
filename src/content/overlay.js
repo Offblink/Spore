@@ -6,6 +6,11 @@
 
   let root = null;
   /**
+   * 当前这一帧的 AI 建议框入口：start() 注册、cleanup()/kill() 置空。
+   * 识别结果晚到而没有入口（用户已采纳/取消/覆盖层已关）→ 直接丢，不重建覆盖层。
+   */
+  let suggestSink = null;
+  /**
    * 框选下限（CSS px）。判定口径：**两者有其一超过下限就允许** ——
    * 只有「宽和高都没到下限」才算框太小（宽条、高条都能截，避免误杀细长截图）。
    */
@@ -17,6 +22,7 @@
       root.remove();
       root = null;
     }
+    suggestSink = null;
   };
 
   function start(shot) {
@@ -41,6 +47,7 @@
     root.appendChild(img);
 
     const box = document.createElement('div');
+    box.id = 'spore-sel-box'; // e2e 断言用：预填/手拖的选区盒都走这里
     box.style.cssText =
       'position:absolute;display:none;border:2px solid #ec4899;background:rgba(236,72,153,0.10);' +
       'box-shadow:0 0 0 9999px rgba(0,0,0,0.55);pointer-events:none;';
@@ -78,6 +85,13 @@
     let startY = 0;
     let dragging = false;
     let moved = false;
+    /** 当前选区（视口 CSS px），paint 的返回值 */
+    let sel = null;
+    /** 选区是否来自 AI 建议框：只有建议框享受「起手保留 + 单击/回车采纳」，
+     *  手拖出来的选区维持原行为（起手即清）——开关关着时与改动前逐字节一致 */
+    let sugSel = false;
+    /** 本次按下是否点在建议框内（单击采纳判定） */
+    let pressedInSel = false;
 
     const clampX = (v) => Math.min(Math.max(v, 0), window.innerWidth);
     const clampY = (v) => Math.min(Math.max(v, 0), window.innerHeight);
@@ -96,7 +110,44 @@
       label.textContent = `${Math.round(w)} × ${Math.round(h)}`;
       label.style.left = `${Math.min(x, window.innerWidth - 74)}px`;
       label.style.top = `${Math.max(4, y - 26)}px`;
-      return { x, y, w, h };
+      sel = { x, y, w, h };
+      return sel;
+    };
+
+    /** 采纳当前选区：发回 SW（与旧的拖拽收尾同一段代码） */
+    const finish = (r) => {
+      cleanup();
+      root?.remove();
+      root = null;
+      chrome.runtime
+        .sendMessage({
+          type: 'spore:rect',
+          rect: {
+            x: Math.round(r.x),
+            y: Math.round(r.y),
+            w: Math.round(r.w),
+            h: Math.round(r.h),
+            viewportW: window.innerWidth,
+            viewportH: window.innerHeight,
+          },
+        })
+        .catch(() => {});
+    };
+
+    // AI 建议框入口（SW 认完字补发 spore:suggest）。已起手（在拖）/框太小 → 静默丢，
+    // 用户照常手动拖，不弹任何提示（识别失败同理：SW 那边根本不发这条消息）。
+    suggestSink = (b) => {
+      if (dragging) return;
+      const x0 = clampX(b.l * window.innerWidth);
+      const y0 = clampY(b.t * window.innerHeight);
+      const x1 = clampX(b.r * window.innerWidth);
+      const y1 = clampY(b.b * window.innerHeight);
+      const w = Math.abs(x1 - x0);
+      const h = Math.abs(y1 - y0);
+      if (w < MIN_W && h < MIN_H) return; // 与「框太小」同口径：两者都没到下限才算小
+      sugSel = true;
+      pressedInSel = false;
+      paint(x0, y0, x1, y1);
     };
 
     const onDown = (e) => {
@@ -106,18 +157,36 @@
       moved = false;
       startX = clampX(e.clientX);
       startY = clampY(e.clientY);
+      if (sugSel && sel) {
+        // 建议框保留到第一次真正拖动；点在框内 = 采纳（见 onUp），点在框外才重新起框
+        pressedInSel = startX >= sel.x && startX <= sel.x + sel.w
+          && startY >= sel.y && startY <= sel.y + sel.h;
+        if (pressedInSel) return;
+      }
+      sugSel = false;
       paint(startX, startY, startX, startY);
     };
 
     const onMove = (e) => {
       if (!dragging) return;
-      const r = paint(startX, startY, clampX(e.clientX), clampY(e.clientY));
+      const cx = clampX(e.clientX);
+      const cy = clampY(e.clientY);
+      if (sugSel && !moved && Math.abs(cx - startX) <= 3 && Math.abs(cy - startY) <= 3) {
+        return; // 还在点击阈值内：建议框不闪没（GUI 端 CLICK_EPS 同款）
+      }
+      const r = paint(startX, startY, cx, cy);
       if (r.w > 6 || r.h > 6) moved = true;
+      sugSel = false; // 拖出来的就是手拖选区，不再享受单击采纳
     };
 
     const onUp = (e) => {
       if (!dragging) return;
       dragging = false;
+      // 单击建议框 = 采纳（原地一下、没拖动）：直接发回，不重画也不弹「请按住拖拽」
+      if (sugSel && pressedInSel && !moved && sel) {
+        finish(sel);
+        return;
+      }
       const rect = paint(startX, startY, clampX(e.clientX), clampY(e.clientY));
       // 太小 / 只是点了下：不发给 Spore、不建会话、也不退出截图态 —— 让用户重新拖。
       // 宽高**都**没到下限才算太小（有其一够大就放行）。
@@ -131,22 +200,7 @@
         );
         return;
       }
-      cleanup();
-      root?.remove();
-      root = null;
-      chrome.runtime
-        .sendMessage({
-          type: 'spore:rect',
-          rect: {
-            x: Math.round(rect.x),
-            y: Math.round(rect.y),
-            w: Math.round(rect.w),
-            h: Math.round(rect.h),
-            viewportW: window.innerWidth,
-            viewportH: window.innerHeight,
-          },
-        })
-        .catch(() => {});
+      finish(rect);
     };
 
     const cancel = () => {
@@ -162,10 +216,18 @@
         e.preventDefault();
         e.stopPropagation();
         cancel();
+        return;
+      }
+      // 回车采纳当前建议框（不必再拖一次；GUI 端回车同款）
+      if (e.key === 'Enter' && sugSel && sel && !dragging) {
+        e.preventDefault();
+        e.stopPropagation();
+        finish(sel);
       }
     };
 
     function cleanup() {
+      suggestSink = null; // 这一帧结束了：晚到的识别结果没入口，直接丢
       clearTimeout(warnTimer);
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('mousemove', onMove, true);
@@ -195,6 +257,16 @@
     if (msg?.type === 'spore:select') {
       try {
         start(msg.shot);
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ error: String(e) });
+      }
+      return false;
+    }
+    if (msg?.type === 'spore:suggest') {
+      // AI 建议框（SW 异步补发）：没有入口 / 已起手 / 框太小 → 静默丢，不回复错误
+      try {
+        suggestSink?.(msg.box);
         sendResponse({ ok: true });
       } catch (e) {
         sendResponse({ error: String(e) });

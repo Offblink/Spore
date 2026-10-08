@@ -146,13 +146,14 @@
     <div class="shell">
       <nav class="idx">
         <div class="brand"><span>Spore</span> 孢子</div>
-        <p class="sub">搜题记录直通整页审查；下面四张卡是应用设置，左边选右边显示。</p>
+        <p class="sub">搜题记录直通整页审查；下面五张卡是应用设置，左边选右边显示。</p>
         <a href="review.html" data-jump="history">搜题记录</a>
         <div class="gap"></div>
         <div class="grp">应用设置</div>
         <a href="#model" data-sec="model" class="on">模型 <i class="dot"></i></a>
         <a href="#mirror" data-sec="mirror">磁盘镜像 <i class="dot"></i></a>
         <a href="#keys" data-sec="keys">快捷键 <i class="dot"></i></a>
+        <a href="#capture" data-sec="capture">截图识别 <i class="dot"></i></a>
         <a href="#log" data-sec="log">日志 <i class="dot"></i></a>
       </nav>
       <main>
@@ -254,6 +255,27 @@
           <a href="#" id="openShortcuts">edge://extensions/shortcuts</a>
           里给「Spore 孢子 · 截图问答」的「框选截图并提问」「弹出/收起 Spore 抽屉」设置快捷键；
           未绑定时扩展会在页面内监听 Alt+S / Alt+Z 作为兜底（与其它扩展冲突时可在这里改）。
+        </div>
+      </div>
+
+      <!-- ===== 截图识别：AI 建议框（2026-10-08，默认关） ===== -->
+      <div class="card" data-sec="capture">
+        <div class="sec-head">
+          <div>
+            <div class="sec-title">AI 建议框</div>
+            <div class="hint" style="margin-top: 3px">
+              Alt+S 截图后先在本机识别文字、自动预选题目区域，你只需微调或直接点一下采纳；
+              识别不出、超时或你已经开始拖动时，照常手动拖框（不弹任何提示）。
+            </div>
+          </div>
+          <label class="switch" title="截图后用本地识别预选题目区域">
+            <input id="mlSuggest" type="checkbox" />
+            <span class="knob"></span>
+          </label>
+        </div>
+        <div class="hint">
+          识别全在本机跑（tesseract.js + 中文语言包，已内置约 6 MB），不联网、不花 API 额度；
+          单次识别 1 秒上下。默认关闭；关着时扩展不会创建识别进程。
         </div>
       </div>
 

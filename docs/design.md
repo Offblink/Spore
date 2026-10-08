@@ -157,6 +157,25 @@ Fungi 是「贴底就跟随，上滑就锁定」。本项目按需求改成：**
 | P6「mv3 和 gui 是否支持渲染 latex？不支持请添加支持」（本片 = MV3） | **一份语义两面共用**的 `src/lib/md.js` 加两段式管线：先把公式从**原文**摘成占位符（U+E000 私有区码位，`esc`/markdown 都不碰），markdown（`code`/`**`/链接/`\n→<br>`）跑完，最后把占位符换回 `katex.renderToString` 的 HTML —— 反着做 `esc` 会把 KaTeX 标签转义掉。四条口径（主会话拍板、GUI 端同款）：`$$..$$`/`\[..\]` 块级可跨行、`$..$`/`\(..\)` 行内不跨行；开 `$` 后非空白（**数字起算公式**，`$2+2=4$` 必渲染）、闭 `$` 前非空白**且闭 `$` 后不是数字**（Pandoc 口径 → `单价 $5，$8` 两个 $ 都配不成对，价格不吞）、`\$` 永不当分隔符且输出剥成字面 `$`；闭合扫描碰到中间的 `$` 要么合法闭合要么本次开侧作废（内容不含 `$`，与 GUI 正则 `[^$\n]` 同语义）。**渲染失败（语法错 / katex 没加载）→ 原样回填转义源码**，回填在 markdown 之后、不二次扫描。资产：KaTeX 0.19 npm tarball 进 `src/lib/katex/`（min.js / min.css / fonts 全量，无 CDN）；加载顺序三处同序：manifest `katex.min.js → md.js → drawer.js`、`review.html` 同序 `<script>`。抽屉是 Shadow DOM → `drawer.js` 往 shadow root 注入 `<link>`（`chrome.runtime.getURL`），manifest `web_accessible_resources` 放行 css+fonts（字体相对 CSS URL 解析）；整页 `review.html` head 直接 link。options 页不用 md（无对齐点）；磁盘镜像 `store.js renderMarkdown` 不经 `md()`，公式源码原样进 `.md`；think/reason 照旧只 `esc` 不渲染。e2e 加 10 条（整页：head link 载入 / 字体真加载 / 5 处 `.katex` 可见非空且 computed font 是 `KaTeX_Main` / `$2+2=4$` 源码不裸露 / `$5·$8` 原样且 `\$5` 剥反斜杠 / 坏公式原样源码；抽屉 shadow 同样 5 处 + link 进 shadow + 价格与坏公式原样；收尾两条）。**红证**：HEAD 基线 `n=0` 且无样式表，实现后 `n=5` |
 | （本轮踩坑）探针页点抽屉 `#toggle` 把后续用例带崩 | 抽屉开合记在 **origin 共享**的 `localStorage['spore.open']`：P6 的探针页与 fixture 页同源，探针页上点一下 `#toggle` 就把 fixture 页切页后重开的抽屉状态写成「关」，`#sessions` 变 `display:none` → 「打开列表 → 确认删除」连锁超时 `exit=2`。修法：探针页**只读不点**（挂载按原值自开自关），另加 1 条断言钉住 `spore.open` 前后不变（233 = 217 + 16） |
 
+## 六j、AI 建议框（ML 识别，默认关，2026-10-08）
+
+三端同一条链：截帧 → **本地** OCR 出文本行 → `Suggestor` 聚类出单个建议框 → 框选覆盖层预选。
+Mobile 是源头（ML Kit 中文识别 + `overlay/Suggestor.java`），本轮把它搬到 MV3 与 GUI，
+**三端算法逐字一致**（正则 / 15 个 cue / 聚类与门槛 / 打分与平手 / padding，`tests/suggestor.test.mjs`
+对拍那边的 `SuggestTest.java`）。识别失败、超时（8s，与 Mobile `ML_TIMEOUT_MS` 同值）、用户已起手
+→ 一律**静默退手动拖框**（用户拍板：不搬 Mobile「认不出字就不进框选」的硬门禁）。
+
+| 问题 | 落地 |
+|---|---|
+| 为什么跑在 offscreen 文档里 | SW 没有 `createObjectURL` 也起不了 Worker；content script 的 Worker 归页面 origin，`chrome-extension://` 资源够不着。offscreen 是扩展自己的同源页面 → Worker / 本地资源 / wasm 全可用（manifest 加 `offscreen` 权限，`reasons: ['WORKERS']`，官方释义正是「需要 spawn worker」）。**开关关着（默认）压根不创建** → 默认零开销 |
+| tesseract.js 全本地、零 CDN | vendor 四件进 `src/lib/tesseract/`（主库 63KB + worker 111KB + core simd-lstm `…wasm.js` 3.95MB + `chi_sim.traineddata.gz` 1.72MB ≈ 5.9MB）。接线四坑：① `workerBlobURL:false` —— 扩展 CSP 只放行 `self`，blob worker 会被拦；② `corePath` **必须以 `.js` 结尾**，否则 `getCore` 按 SIMD 特性自己挑文件名，而我们只 vendor 了一个；③ `langPath` 给目录 + 默认 `gzip:true` → 取 `chi_sim.traineddata.gz`；④ **manifest 必须自己声明 CSP**：实测本扩展生效的是 `script-src 'self'`（**没有 `wasm-unsafe-eval`**）→ `WebAssembly.compile` 被拒 → tesseract 的 `Core(...).then()` **没有 catch** → `createWorker` 永久 pending（实测卡在 `initializing tesseract` 0%、`spore:ocr` 每轮 8s 无回执）。manifest 加 `content_security_policy.extension_pages = "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"` 才通 |
+| 识别器挂死不能毒化后续 | 即便 CSP 修好，`createWorker` 仍是「一次失败永久 pending」的形状 → `worker()` 用 8s `Promise.race` 兜底：超时丢弃实例、**晚到的成功就地 `terminate()` 不留孤儿**，下一轮重新建 |
+| 行框在哪 | `recognize()` 的 `defaultOutput.blocks = false` → **必须显式传 `{ blocks: true }`**，否则 `data.blocks` 是 null。路径 `data.blocks[].paragraphs[].lines[].bbox{x0,y0,x1,y1}`，行 `text` 带尾换行 → 进 Suggestor 前 trim |
+| 时序：覆盖层先出、识别后补 | SW 发完 `spore:select` 立刻 `void maybeSuggest(tabId, shot)`（不阻塞），识别完补发 `spore:suggest`；覆盖层 `suggestSink` 收到时**已起手/已关就丢**，否则预填。坐标用分数（0..1）传：冻结帧是 `object-fit:fill` 铺满视口，分数 × `innerWidth/innerHeight` 即视口 CSS px，与 `cropShot` 的 `bmp.width / rect.viewportW` 同一套比例；OCR 侧先把帧缩到长边 ≤1600 再认，框按同一比例缩回 |
+| 与旧交互的边界 | 「起手保留 + 单击/回车采纳」**只对建议框来源的选区生效**（`sugSel` 标志）：手拖选区仍是起手即清，开关关着时与改动前逐字节一致 |
+
+实测（本机无头 Chromium 跑 vendor 的那几件资产）：worker 创建 314ms、全屏 1920×1080 帧识别 530ms。
+
 ## 七、增量实现与验证
 
 1. P1 骨架与检索：manifest、`llm.js`、`tools.js`、`store.js` —— 四个模块 node 语法/链接检查通过。

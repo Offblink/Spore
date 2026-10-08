@@ -224,6 +224,7 @@ def main():
         for t_name, t_check in (
             ("search.test.mjs", "离线：检索引擎链三闸全过（node --test tests/search.test.mjs）"),
             ("answer.test.mjs", "离线：初答自检与阶段B 解析契约全过（node --test tests/answer.test.mjs）"),
+            ("suggestor.test.mjs", "离线：建议框算法（Suggestor 移植）契约全过（node --test tests/suggestor.test.mjs）"),
         ):
             off = subprocess.run(
                 ["node", "--test", str(HERE / t_name)],
@@ -1172,7 +1173,7 @@ def main():
                 check("设置页无 JS 报错", not errs, str(errs)[:160])
 
                 # 分页：左边索引，右边一次只显示一页
-                for name in ("model", "mirror", "keys", "log"):
+                for name in ("model", "mirror", "keys", "capture", "log"):
                     opt.click(f'.idx a[data-sec="{name}"]')
                     opt.wait_for_timeout(120)
                     vis = opt.evaluate(
@@ -1250,6 +1251,32 @@ def main():
                     """async () => ((await chrome.storage.local.get('spore.settings'))['spore.settings'] || {}).hideToggle"""
                 )
                 check("取消勾选恢复默认（关）", restored_hide is False, repr(restored_hide))
+
+                # AI 建议框：默认关 → 经设置页勾上写回存储 → 取消恢复（与 hideToggle 同一条链）
+                # 开关在 .switch 标签里（input 隐藏）→ 点标签本体，走用户真实路径。
+                # 整段自带 try：失败记成自己的 FAIL，不外逸到外层 except（那会吞掉语义、
+                # 连带把后面没赋值的 review_base 带崩成 exit=2）
+                try:
+                    ml_default = sw.evaluate(
+                        """async () => ((await chrome.storage.local.get('spore.settings'))['spore.settings'] || {}).mlSuggest"""
+                    )
+                    check("AI 建议框默认关闭（键缺失 = 关）", ml_default in (None, False), repr(ml_default))
+                    opt.click('.idx a[data-sec="capture"]')
+                    opt.wait_for_timeout(250)
+                    opt.click('.card[data-sec="capture"] label.switch')
+                    opt.wait_for_timeout(1400)
+                    saved_ml = sw.evaluate(
+                        """async () => ((await chrome.storage.local.get('spore.settings'))['spore.settings'] || {}).mlSuggest"""
+                    )
+                    check("勾「AI 建议框」写回存储", saved_ml is True, repr(saved_ml))
+                    opt.click('.card[data-sec="capture"] label.switch')
+                    opt.wait_for_timeout(1400)
+                    restored_ml = sw.evaluate(
+                        """async () => ((await chrome.storage.local.get('spore.settings'))['spore.settings'] || {}).mlSuggest"""
+                    )
+                    check("取消勾选 AI 建议框恢复默认（关）", restored_ml is False, repr(restored_ml))
+                except Exception as e:  # noqa: BLE001
+                    check("AI 建议框设置页开合", False, f"{type(e).__name__}: {e}")
 
                 opt.click('.idx a[data-sec="log"]')
                 opt.wait_for_timeout(700)
@@ -2275,6 +2302,135 @@ def main():
             )
             rev2.screenshot(path=str(SHOTS / "16-review-fetch-image.png"))
             rev2.close()
+
+            # ---------------- AI 建议框（默认关 → 开 → 预填 → 单击采纳） ----------------
+            # 放在收尾：前面的删除用例把 spore.index 清成了 0，这里造的会话不会影响任何既有计数断言
+            page.bring_to_front()
+            ml_now = sw.evaluate(
+                """async () => ((await chrome.storage.local.get('spore.settings'))['spore.settings'] || {}).mlSuggest"""
+            )
+            check("收尾起点：AI 建议框仍是关的", ml_now is False, repr(ml_now))
+
+            # ① 关着抓帧：识别链路整条不启动（不建 offscreen、不预填），取消不建会话
+            idx_before = sw.evaluate(
+                "async () => (await chrome.storage.local.get('spore.index'))['spore.index'] || []"
+            )
+            page.keyboard.press("Alt+S")
+            page.wait_for_selector("#spore-overlay-root", timeout=10000)
+            page.wait_for_timeout(2500)  # 若开着，识别 ~1s 就该预填；给足余量
+            off_off = sw.evaluate("async () => !!(chrome.offscreen && await chrome.offscreen.hasDocument())")
+            box_off = page.evaluate(
+                """() => { const b = document.getElementById('spore-sel-box');
+                           return b ? b.style.display : 'missing'; }"""
+            )
+            check("关着抓帧：不创建 offscreen 文档（零 OCR 开销）", off_off is False, repr(off_off))
+            check("关着抓帧：覆盖层没有预填选区", box_off != "block", repr(box_off))
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#spore-overlay-root", state="detached", timeout=10000)
+            idx_cancel = sw.evaluate(
+                "async () => (await chrome.storage.local.get('spore.index'))['spore.index'] || []"
+            )
+            check(
+                "关着抓帧：取消框选不建会话",
+                len(idx_cancel) == len(idx_before),
+                f"{len(idx_before)} -> {len(idx_cancel)}",
+            )
+
+            # ② 打开开关（设置 UI 已在上面验过写链，这里直接落存储省一次开页）
+            sw.evaluate(
+                """async () => {
+                    const k = 'spore.settings';
+                    const cur = (await chrome.storage.local.get(k))[k] || {};
+                    cur.mlSuggest = true;
+                    await chrome.storage.local.set({ [k]: cur });
+                    return true;
+                }"""
+            )
+            # 下面整段包 try：任何一步抛异常都记成 FAIL，不能变成 exit=2（与已知抖动混淆）
+            try:
+                page.keyboard.press("Alt+S")
+                page.wait_for_selector("#spore-overlay-root", timeout=10000)
+                page.wait_for_function(
+                    """() => { const b = document.getElementById('spore-sel-box');
+                               return !!b && b.style.display === 'block'
+                                   && parseFloat(b.style.width) > 60; }""",
+                    timeout=20000,
+                )
+                prefilled = True
+                ml_err = ""
+            except Exception as e:  # noqa: BLE001
+                prefilled = False
+                ml_err = f"{type(e).__name__}: {e}"
+                print("[ml] 预填未出现：", ml_err, flush=True)
+            check("开着抓帧：识别出建议框并预填选区", prefilled, ml_err or prefilled)
+            on_on = sw.evaluate("async () => !!(chrome.offscreen && await chrome.offscreen.hasDocument())")
+            check("开着抓帧：创建了 offscreen 文档（OCR 跑在里面）", on_on is True, repr(on_on))
+            page.screenshot(path=str(SHOTS / "17-ml-suggest.png"))
+
+            # 预填盒必须圈住题目区域（与任一 p.q 重叠 ≥ 50%）——几何证明坐标换算没跑偏
+            geo = page.evaluate(
+                """() => {
+                    const b = document.getElementById('spore-sel-box');
+                    if (!b || b.style.display !== 'block') return null;
+                    const r = b.getBoundingClientRect();
+                    const sel = { x: r.x, y: r.y, w: r.width, h: r.height };
+                    const qs = [...document.querySelectorAll('p.q')].map((el) => {
+                        const q = el.getBoundingClientRect();
+                        return { x: q.x, y: q.y, w: q.width, h: q.height };
+                    });
+                    return { sel, qs };
+                }"""
+            )
+
+            def _ov(a, b):
+                ix = max(0.0, min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"]))
+                iy = max(0.0, min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"]))
+                return ix * iy
+
+            # 只钉「坐标换算没跑偏、框确实落在题目上」，**不钉框有多全**：OCR 行框有抖动
+            # （同一页两次跑：一次圈住整题 1125px 宽，一次只圈到题干左半 383px 宽，
+            # 后者对第一题的重叠只有 49.5% —— 建议框本来就是「建议 + 手动微调」）
+            ok_geo = bool(geo) and any(
+                _ov(geo["sel"], q) >= 0.25 * q["w"] * q["h"] for q in geo["qs"]
+            )
+            check("预填框落在题目上（与 p.q 重叠 ≥25%）", ok_geo, repr(geo))
+
+            # ③ 单击预填框 = 采纳：覆盖层收起、新会话建立
+            if prefilled and geo:
+                try:
+                    s = geo["sel"]
+                    page.mouse.click(s["x"] + s["w"] / 2, s["y"] + s["h"] / 2)
+                    page.wait_for_selector("#spore-overlay-root", state="detached", timeout=10000)
+                    # 覆盖层收起只是 finish() 的第一步，SW 那边还有一整段
+                    # （after-capture → cropShot → 建会话 → 落图 → saveSession）才写 index，轮询等它
+                    idx_after = []
+                    for _ in range(40):
+                        idx_after = sw.evaluate(
+                            "async () => (await chrome.storage.local.get('spore.index'))['spore.index'] || []"
+                        )
+                        if len(idx_after) > len(idx_before):
+                            break
+                        page.wait_for_timeout(250)
+                    check(
+                        "单击预填框采纳（覆盖层收起 + 建会话）",
+                        len(idx_after) == len(idx_before) + 1,
+                        f"{len(idx_before)} -> {len(idx_after)}",
+                    )
+                except Exception as e:  # noqa: BLE001
+                    check("单击预填框采纳（覆盖层收起 + 建会话）", False, f"{type(e).__name__}: {e}")
+            else:
+                check("单击预填框采纳（覆盖层收起 + 建会话）", False, "预填没出现，跳过点击")
+
+            # 关回默认：别把开关留在开态（后续会话不受识别链路影响）
+            sw.evaluate(
+                """async () => {
+                    const k = 'spore.settings';
+                    const cur = (await chrome.storage.local.get(k))[k] || {};
+                    cur.mlSuggest = false;
+                    await chrome.storage.local.set({ [k]: cur });
+                    return true;
+                }"""
+            )
 
             ctx.close()
     finally:
