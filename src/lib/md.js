@@ -129,6 +129,11 @@
   const RE_SET_EXT = /^\s*={3,}\s*$/;
   const RE_RULE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
   const RE_LI = /^\s*[-*+]\s+(.*)$/;
+  // 有序列表：python 实测认 `1. ` 不认 `1)`；`3.` 也不开 start 属性；4 空格缩进归代码块
+  const RE_OL = /^ {0,3}\d+\.\s+(.*)$/;
+  // 围栏代码整块（python fenced_code 预处理器同款）：顶格 + 编号 ≥3 + 语言串单记号 +
+  // 闭合围栏与开启**逐字符相同**（\1 反向引用，实测 4 个 ` 开、3 个 ` 闭不上）；未闭合不匹配
+  const RE_FENCE_BLOCK = /^(~{3,}|`{3,})[ ]*\{?\.?([a-zA-Z0-9_+-]*)\}?[ ]*\n([\s\S]*?)(?<=\n)\1[ ]*(?=\n|$)/gm;
 
   function renderBlocks(s) {
     const lines = s.split('\n');
@@ -145,6 +150,15 @@
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (afterBlock && line === '') continue;   // 块元素之间的空行不再落 <br>
+
+      // 围栏代码块（md() 层已摘成整块占位符 PUA+F+序号+PUA）：单独成块落地，
+      // 不并进相邻文本行（否则前后会多出 <br>）
+      if (/^\uE000F\d+\uE000$/.test(line)) {
+        flush(true);
+        out.push(line);
+        afterBlock = true;
+        continue;
+      }
 
       // 引用块：行首 `> ` 起块，可打断段落（python 口径：不须空行）。块的范围 = 起块行到本段
       // （空行分隔）末尾：段内**非空**行即使没有 `>` 也吞进块里（lazy 续行），但**能再起块的行**
@@ -243,6 +257,21 @@
         continue;
       }
 
+      // 有序列表：连续 `1. ` 成一个 <ol>；紧邻段落不打断（python 口径，与无序列表同款）
+      if (canStart() && RE_OL.test(line)) {
+        flush(true);
+        let olHtml = '<ol>';
+        let oli;
+        while (i < lines.length && (oli = RE_OL.exec(lines[i]))) {
+          olHtml += '<li>' + oli[1] + '</li>';
+          i++;
+        }
+        i--;
+        out.push(olHtml + '</ol>');
+        afterBlock = true;
+        continue;
+      }
+
       // 无序列表：连续 `- `/`* `/`+ ` 成一个 <ul>；紧邻段落时不打断（python 口径）
       if (canStart() && RE_LI.test(line)) {
         flush(true);
@@ -268,15 +297,24 @@
   function md(text) {
     // 统一换行：样本是 CRLF，\r 会让 /^#/ 与空行判定（setext/表格/列表起手）全失灵
     const src = String(text ?? '').replace(/\r\n?/g, '\n');
-    const { body, math } = extractMath(src);
+    // 围栏代码整块先摘（必须先于 extractMath 与行内代码：块内不解析公式/markdown，
+    // python fenced_code 的预处理器就是这个顺序；`([^`]+)` 也会把 ``` 开闭配成一对吃掉）
+    const blocks = [];
+    const fenced = src.replace(RE_FENCE_BLOCK, (m, fence, lang, code) => {
+      const cls = lang ? ' class="language-' + lang + '"' : '';
+      blocks.push('<pre><code' + cls + '>' + esc(code) + '</code></pre>');
+      return `${PUA}F${blocks.length - 1}${PUA}`;   // 独立标记：renderBlocks 认它是块元素
+    });
+    const { body, math } = extractMath(fenced);
     let s = esc(body);
     s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-    // 行结构（标题/表格/列表/分隔线）在 esc 之后、占位符回填之前落地；普通文本行间仍换 <br>
+    // 行结构（标题/表格/列表/分隔线/引用块/围栏占位）在 esc 之后、占位符回填之前落地
     s = renderBlocks(s);
+    s = s.replace(new RegExp(PUA + 'F(\\d+)' + PUA, 'g'), (_, i) => blocks[+i]);
     if (!math.length) return s;
-    return s.replace(/M(\d+)/g, (_, n) => mathHtml(math[+n]));
+    return s.replace(new RegExp(PUA + 'M(\\d+)' + PUA, 'g'), (_, n) => mathHtml(math[+n]));
   }
 
   globalThis.SporeMD = { esc, md };

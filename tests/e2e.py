@@ -1888,9 +1888,10 @@ def main():
                     "块级 $$\\frac{1}{2}$$ 与 \\[x+y\\]；"
                     "坏公式 $\\notacommand$ 原样保留；"
                     "价格 $5 不吃，单价 $5，$8 元也不吃；转义 \\$5 是字面美元"
-                    # P6 行结构（与 Spore-Mobile renderBlocks 同口径）：标题/列表/表格/分隔线/引用块
+                    # P6 行结构（与 Spore-Mobile renderBlocks 同口径）：标题/列表/表格/分隔线/引用块/围栏
                     "\n\n## 行结构自测\n\n> 引用甲\n> 引用乙\n\n- 列表甲\n- 列表乙\n\n"
-                    "| 左 | 右 |\n|---|---|\n| 甲 | 乙 |\n\n---\n\n### 三级标题\n"
+                    "| 左 | 右 |\n|---|---|\n| 甲 | 乙 |\n\n---\n\n### 三级标题\n\n"
+                    "1. 有序甲\n2. 有序乙\n\n```js\nlet a = 1;\n```\n"
                 )
                 math_row = {
                     "id": math_sid,
@@ -1975,7 +1976,12 @@ def main():
                         const doc = document.querySelector('#history').textContent;
                         return {
                             h2: q('h2'), h3: q('h3'), table: q('table'), th: q('th'), td: q('td'),
-                            ul: q('ul'), li: q('li'), hr: q('hr'),
+                            ul: q('ul'), ulli: ans.querySelectorAll('ul li').length,
+                            ol: q('ol'), olli: ans.querySelectorAll('ol li').length,
+                            hr: q('hr'),
+                            pre: q('pre'), preLang: (ans.querySelector('pre code') || {}).className || '',
+                            preOv: (() => { const p = ans.querySelector('pre');
+                                return p ? getComputedStyle(p).overflowX : ''; })(),
                             h2w: h2 ? getComputedStyle(h2).fontWeight : '',
                             bc: tb ? getComputedStyle(tb).borderCollapse : '',
                             litHead: doc.includes('## 行结构自测'),
@@ -1985,15 +1991,25 @@ def main():
                             bqw: ans.querySelector('blockquote')
                                 ? getComputedStyle(ans.querySelector('blockquote')).borderLeftWidth : '',
                             litQuote: ans.textContent.includes('> 引用甲'),
+                            litOl: ans.textContent.includes('1. 有序甲'),
+                            litFence: ans.textContent.includes('```'),
                         };
                     }"""
                 )
                 check(
-                    "P6 整页：行结构渲染（h2/h3/table 表头表体/ul/hr 齐全 + 标题与表格样式生效）",
+                    "P6 整页：行结构渲染（h2/h3/table 表头表体/ul/ol/hr 齐全 + 标题与表格样式生效）",
                     blk["h2"] == 1 and blk["h3"] == 1 and blk["table"] == 1 and blk["th"] == 2
-                    and blk["td"] == 2 and blk["ul"] == 1 and blk["li"] == 2 and blk["hr"] == 1
+                    and blk["td"] == 2 and blk["ul"] == 1 and blk["ulli"] == 2 and blk["hr"] == 1
+                    and blk["ol"] == 1 and blk["olli"] == 2
                     and blk["h2w"] == "700" and blk["bc"] == "collapse",
                     str(blk),
+                )
+                check(
+                    "P6 整页：围栏代码渲染（pre>code + language-js + 横向滚样式 + 无字面 ``` 与 1. 序号）",
+                    blk["pre"] == 1 and blk["preLang"] == "language-js" and blk["preOv"] == "auto"
+                    and not blk["litFence"] and not blk["litOl"],
+                    f"pre={blk['pre']} lang={blk['preLang']} ov={blk['preOv']} "
+                    f"litFence={blk['litFence']} litOl={blk['litOl']}",
                 )
                 check(
                     "P6 整页：引用块渲染（blockquote + 左框线样式生效 + 无字面 > 记号）",
@@ -2048,7 +2064,12 @@ def main():
                             bad: doc.includes('$' + String.fromCharCode(92) + 'notacommand$'),
                             blk: {
                                 h2: q('h2'), h3: q('h3'), table: q('table'), th: q('th'), td: q('td'),
-                                ul: q('ul'), li: q('li'), hr: q('hr'),
+                                ul: q('ul'), ulli: ans.querySelectorAll('ul li').length,
+                                ol: q('ol'), olli: ans.querySelectorAll('ol li').length,
+                                hr: q('hr'),
+                                pre: q('pre'), preLang: (ans.querySelector('pre code') || {}).className || '',
+                                preOv: (() => { const p = ans.querySelector('pre');
+                                    return p ? getComputedStyle(p).overflowX : ''; })(),
                                 h2w: h2 ? getComputedStyle(h2).fontWeight : '',
                                 bc: tb ? getComputedStyle(tb).borderCollapse : '',
                                 litHead: doc.includes('## 行结构自测'),
@@ -2057,6 +2078,8 @@ def main():
                                 bqw: (ans && ans.querySelector('blockquote'))
                                     ? getComputedStyle(ans.querySelector('blockquote')).borderLeftWidth : '',
                                 litQuote: ans ? ans.textContent.includes('> 引用甲') : true,
+                                litOl: ans ? ans.textContent.includes('1. 有序甲') : true,
+                                litFence: ans ? ans.textContent.includes('```') : true,
                             },
                         };
                     }"""
@@ -2073,12 +2096,20 @@ def main():
                 )
                 dblk = dinfo["blk"]
                 check(
-                    "P6 抽屉：shadow root 里行结构同样落地（h2/h3/table/ul/hr + 样式，无字面 ## 行）",
+                    "P6 抽屉：shadow root 里行结构同样落地（h2/h3/table/ul/ol/hr + 样式，无字面 ## 行）",
                     dblk["h2"] == 1 and dblk["h3"] == 1 and dblk["table"] == 1 and dblk["th"] == 2
-                    and dblk["td"] == 2 and dblk["ul"] == 1 and dblk["li"] == 2 and dblk["hr"] == 1
+                    and dblk["td"] == 2 and dblk["ul"] == 1 and dblk["ulli"] == 2
+                    and dblk["ol"] == 1 and dblk["olli"] == 2 and dblk["hr"] == 1
                     and dblk["h2w"] == "700" and dblk["bc"] == "collapse"
                     and not dblk["litHead"] and not dblk["litDash"],
                     str(dblk),
+                )
+                check(
+                    "P6 抽屉：shadow root 里围栏代码同样落地（pre>code + language-js + 无字面 ```）",
+                    dblk["pre"] == 1 and dblk["preLang"] == "language-js" and dblk["preOv"] == "auto"
+                    and not dblk["litFence"] and not dblk["litOl"],
+                    f"pre={dblk['pre']} lang={dblk['preLang']} ov={dblk['preOv']} "
+                    f"litFence={dblk['litFence']} litOl={dblk['litOl']}",
                 )
                 check(
                     "P6 抽屉：shadow root 里引用块同样落地（blockquote + 样式生效 + 无字面 > 记号）",
