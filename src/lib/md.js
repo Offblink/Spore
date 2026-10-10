@@ -124,6 +124,8 @@
       : /:$/.test(c) ? ' style="text-align: right;"'
       : c.charAt(0) === ':' ? ' style="text-align: left;"' : '';
   const RE_ATX = /^(#{1,6})(.*)$/;
+  // 引用块：行首 `> `（esc 后行首记号是 &gt;）0~3 空格缩进照 python
+  const RE_BQ = /^ {0,3}&gt; ?(.*)$/;
   const RE_SET_EXT = /^\s*={3,}\s*$/;
   const RE_RULE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
   const RE_LI = /^\s*[-*+]\s+(.*)$/;
@@ -143,6 +145,38 @@
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (afterBlock && line === '') continue;   // 块元素之间的空行不再落 <br>
+
+      // 引用块：行首 `> ` 起块，可打断段落（python 口径：不须空行）。块的范围 = 起块行到本段
+      // （空行分隔）末尾：段内**非空**行即使没有 `>` 也吞进块里（lazy 续行），但**能再起块的行**
+      // （`#` 标题、`***`/`---` 分隔线）不吞（python 实测它们落成兄弟节点）；段间空行只在后面
+      // 还有 `> ` 行时才留在块内（`> 甲\n\n> 乙` 合成一个 blockquote、空行降级成块内段落分隔）。
+      // 块内剥一层 `> ` 后递归走本函数 → 块内标题/表格/列表/hr 与 `>>` 嵌套同口径。
+      // 口径与 Spore-Mobile renderBlocks 逐字一致（2026-10-10 两端对齐）。
+      if (RE_BQ.test(line)) {
+        flush(true);
+        const inner = [];
+        let j = i;
+        while (j < lines.length) {
+          const cur = lines[j];
+          if (cur.trim() === '') {
+            let k = j;
+            while (k < lines.length && lines[k].trim() === '') k++;
+            // 后面没有 `> ` 行了：空行留在外层（afterBlock 会吃掉），块到此为止
+            if (k >= lines.length || !RE_BQ.test(lines[k])) break;
+            inner.push('');   // 合并跨空行的两段引用：空行降级成块内段落分隔
+            j = k;
+            continue;
+          }
+          const q = RE_BQ.exec(cur);
+          if (!q && (RE_ATX.test(cur) || RE_RULE.test(cur))) break;   // 再起块的行不吞
+          inner.push(q ? q[1] : cur);
+          j++;
+        }
+        out.push('<blockquote>' + renderBlocks(inner.join('\n')) + '</blockquote>');
+        afterBlock = true;
+        i = j - 1;
+        continue;
+      }
 
       // ATX 标题：#~###### 开头（python 口径：不强制 # 后有空格，尾部 # 序列剥掉）
       const atx = RE_ATX.exec(line);

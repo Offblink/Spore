@@ -1888,8 +1888,8 @@ def main():
                     "块级 $$\\frac{1}{2}$$ 与 \\[x+y\\]；"
                     "坏公式 $\\notacommand$ 原样保留；"
                     "价格 $5 不吃，单价 $5，$8 元也不吃；转义 \\$5 是字面美元"
-                    # P6 行结构（与 Spore-Mobile renderBlocks 同口径）：标题/列表/表格/分隔线
-                    "\n\n## 行结构自测\n\n- 列表甲\n- 列表乙\n\n"
+                    # P6 行结构（与 Spore-Mobile renderBlocks 同口径）：标题/列表/表格/分隔线/引用块
+                    "\n\n## 行结构自测\n\n> 引用甲\n> 引用乙\n\n- 列表甲\n- 列表乙\n\n"
                     "| 左 | 右 |\n|---|---|\n| 甲 | 乙 |\n\n---\n\n### 三级标题\n"
                 )
                 math_row = {
@@ -1981,6 +1981,10 @@ def main():
                             litHead: doc.includes('## 行结构自测'),
                             litPipe: doc.includes('| 左 | 右 |'),
                             litDash: ans.textContent.includes('- 列表甲'),
+                            bq: q('blockquote'),
+                            bqw: ans.querySelector('blockquote')
+                                ? getComputedStyle(ans.querySelector('blockquote')).borderLeftWidth : '',
+                            litQuote: ans.textContent.includes('> 引用甲'),
                         };
                     }"""
                 )
@@ -1990,6 +1994,11 @@ def main():
                     and blk["td"] == 2 and blk["ul"] == 1 and blk["li"] == 2 and blk["hr"] == 1
                     and blk["h2w"] == "700" and blk["bc"] == "collapse",
                     str(blk),
+                )
+                check(
+                    "P6 整页：引用块渲染（blockquote + 左框线样式生效 + 无字面 > 记号）",
+                    blk["bq"] == 1 and blk["bqw"] == "3px" and not blk["litQuote"],
+                    f"bq={blk['bq']} bqw={blk['bqw']} litQuote={blk['litQuote']}",
                 )
                 check(
                     "P6 整页：字面 markdown 行（## 标题 / 表头行 / - 列表）不再原样保留",
@@ -2044,6 +2053,10 @@ def main():
                                 bc: tb ? getComputedStyle(tb).borderCollapse : '',
                                 litHead: doc.includes('## 行结构自测'),
                                 litDash: ans ? ans.textContent.includes('- 列表甲') : true,
+                                bq: q('blockquote'),
+                                bqw: (ans && ans.querySelector('blockquote'))
+                                    ? getComputedStyle(ans.querySelector('blockquote')).borderLeftWidth : '',
+                                litQuote: ans ? ans.textContent.includes('> 引用甲') : true,
                             },
                         };
                     }"""
@@ -2066,6 +2079,11 @@ def main():
                     and dblk["h2w"] == "700" and dblk["bc"] == "collapse"
                     and not dblk["litHead"] and not dblk["litDash"],
                     str(dblk),
+                )
+                check(
+                    "P6 抽屉：shadow root 里引用块同样落地（blockquote + 样式生效 + 无字面 > 记号）",
+                    dblk["bq"] == 1 and dblk["bqw"] == "3px" and not dblk["litQuote"],
+                    f"bq={dblk['bq']} bqw={dblk['bqw']} litQuote={dblk['litQuote']}",
                 )
                 dp.screenshot(path=str(SHOTS / "19-drawer-katex.png"))
                 dp.close()

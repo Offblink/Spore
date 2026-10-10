@@ -113,6 +113,9 @@
 .msg.bot ul{margin:6px 0;padding-left:1.4em}
 .msg.bot li{margin:2px 0}
 .msg.bot hr{border:0;border-top:1px solid #e6e8f2;margin:9px 0}
+.msg.bot blockquote{margin:7px 0;padding:3px 10px 3px 11px;border-left:3px solid #e6e8f2;
+  border-radius:0 6px 6px 0;background:#f2f4fb;color:#4a4f6b}
+.msg.bot blockquote blockquote{margin:4px 0 2px;padding-left:9px;border-left-width:2px}
 /* 表格与标题里的公式别撑破气泡（长块级公式横向滚） */
 .msg.bot .katex-display{overflow-x:auto;overflow-y:hidden;margin:.5em 0}
 .think{display:none;margin:0 0 7px;border-left:2px solid #e9eaf4;padding:2px 0 3px 10px}
