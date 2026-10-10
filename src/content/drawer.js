@@ -98,6 +98,9 @@
   border:1px solid #eef0f8;border-radius:5px;padding:0 4px}
 .msg.bot a{color:#c2185b;text-decoration:none;border-bottom:1px solid #f7c8da}
 .msg.bot strong{font-weight:650;color:#14172a}
+/* md 行内新增：斜体与图片（图片按块级落地、限宽不溢屏；.shot 是用户截图，走 .msg.user 那条规则，不冲突） */
+.msg.bot em{font-style:italic}
+.msg.bot img{display:block;max-width:100%;height:auto;margin:6px 0;border-radius:6px;border:1px solid #e6e8f2}
 /* ---- md 行结构（md.js 产出：标题/表格/列表/分隔线；与移动端 panel.css 同口径） ---- */
 .msg.bot h1,.msg.bot h2,.msg.bot h3,.msg.bot h4,.msg.bot h5,.msg.bot h6{margin:10px 0 6px;
   font-weight:700;color:#14172a;line-height:1.45}
@@ -105,7 +108,11 @@
 .msg.bot h2{font-size:1.2em}
 .msg.bot h3{font-size:1.1em}
 .msg.bot h4,.msg.bot h5,.msg.bot h6{font-size:1em}
-.msg.bot table{border-collapse:collapse;width:100%;margin:7px 0;font-size:14px;font-weight:400;
+/* 宽表格横向滚动：md.js 把 <table> 套进 .tablewrap，内层表格 margin 归零、宽度交给内容
+   （width:auto + min-width:100%：窄表仍占满、宽表真的滚起来；与移动端 panel.css 同口径） */
+.msg.bot .tablewrap{overflow-x:auto;margin:7px 0}
+.msg.bot .tablewrap>table{margin:0;width:auto;min-width:100%}
+.msg.bot table{border-collapse:collapse;width:100%;margin:0;font-size:14px;font-weight:400;
   border:1px solid #e6e8f2}
 .msg.bot th,.msg.bot td{border:1px solid #e6e8f2;padding:5px 9px;text-align:left;overflow-wrap:break-word}
 .msg.bot th{background:#f2f4fb;color:#14172a;font-weight:650}
@@ -629,7 +636,8 @@
         const head = ev.no ? `第${String(ev.no).replace(/[^\dA-Za-z]/g, '')}题 ` : '';
         const ans = node.querySelector('[data-slot=ans]');
         const why = node.querySelector('[data-slot=why]');
-        if (ans) ans.innerHTML = md(head + (ev.ans || ''));
+        // 题号前缀单独 esc、正文单独 md：拼进 md() 会让前缀占掉行首 # 位（首行 ATX 标题起不来）
+        if (ans) ans.innerHTML = esc(head) + md(ev.ans || '');
         if (why) why.innerHTML = md(ev.why || '');
         autoFoldThink(node);
         break;
@@ -1014,7 +1022,8 @@
       const head = m.no ? `第${String(m.no).replace(/[^\dA-Za-z]/g, '')}题 ` : '';
       paintThink(node, 'answer', m.think || '', !!(m.ans || m.why));
       paintThink(node, 'verify', m.verify?.think || '', !!m.verify?.note);
-      node.querySelector('[data-slot=ans]').innerHTML = md(head + (m.ans || ''));
+      // 题号前缀单独 esc、正文单独 md（同 answer-delta：前缀不许占掉正文行首的 # 位）
+      node.querySelector('[data-slot=ans]').innerHTML = esc(head) + md(m.ans || '');
       node.querySelector('[data-slot=why]').innerHTML = md(m.why || '');
       if (m.verify?.ran || m.verify?.skipped) node.querySelector('.vnote').innerHTML = md(m.verify.note || '');
       if (m.tools?.length) {

@@ -594,7 +594,8 @@
         (m.tools?.length ? `<div class="tools">${m.tools.map((t) => `<div class="tool">${esc(t)}</div>`).join('')}</div>` : '') +
         verifyBox(m.verify) +
         (m.error ? `<div class="err">${esc(m.error)}</div>` : '');
-      node.querySelector('.ans').innerHTML = md(head + (m.ans || ''));
+      // 题号前缀单独 esc、正文单独 md：拼进 md() 会让前缀占掉行首 # 位（首行 ATX 标题起不来）
+      node.querySelector('.ans').innerHTML = esc(head) + md(m.ans || '');
       const why = node.querySelector('.why');
       if (m.why) why.innerHTML = md(m.why);
       else why.remove();
@@ -1002,7 +1003,8 @@
         const head = ev.no ? `第${String(ev.no).replace(/[^\dA-Za-z]/g, '')}题 ` : '';
         const ans = node.querySelector('.ans');
         const why = node.querySelector('.why');
-        if (ans) ans.innerHTML = md(head + (ev.ans || ''));
+        // 题号前缀单独 esc、正文单独 md（同 renderMsg）
+        if (ans) ans.innerHTML = esc(head) + md(ev.ans || '');
         if (why) why.innerHTML = md(ev.why || '');
         maybeFollow();
         break;

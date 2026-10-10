@@ -11,7 +11,7 @@
 涂抹多选（「批量选择」按钮进模式·0 选起手 / 单选框涂抹与折返换向 / 批量收藏·移入科目·删除 /
 底栏取消·Escape·换筛选·按钮再点四条退出路）+ 涂抹贴边自动滚动 #list（贴下缘连续滚 → 回中部停 →
 pointerup 必停，播种超长列表，全确定性）+ LaTeX 渲染（四类分隔符 / $2+2=4$ 出 .katex、价格 $5 不被吞、
-坏公式原样源码 / 整页与抽屉 shadow 两面钉住共用 md.js）+ 拖入图片 URL 读取（两处 composer 的 dragover 兜底 /
+坏公式原样源码 / 宽表格 .tablewrap 横向滚 / 题号前缀不顶掉首行标题 / 整页与抽屉 shadow 两面钉住共用 md.js）+ 拖入图片 URL 读取（两处 composer 的 dragover 兜底 /
 非 http(s) 忽略并提示 / 拉非图不建会话 / 真图建会话且消息带图）。
 全部断言通过时退出码为 0；失败会把现场截图留在 tests/_shots/。
 """
@@ -1892,7 +1892,15 @@ def main():
                     "\n\n## 行结构自测\n\n> 引用甲\n> 引用乙\n\n- 列表甲\n- 列表乙\n\n"
                     "| 左 | 右 |\n|---|---|\n| 甲 | 乙 |\n\n---\n\n### 三级标题\n\n"
                     "1. 有序甲\n2. 有序乙\n\n```js\nlet a = 1;\n```\n"
+                    # P6d 行内/块级新格式（与 Spore-Mobile 的 md.js 同口径）：斜体、图片、
+                    # 4 空格缩进代码块、嵌套列表（ul 内嵌 ul + ol 内嵌 ol）
+                    "\n\n行内 *斜体自测* 与图片 ![图注](https://e.com/spore-e2e.png)\n\n"
+                    "    indent_code_a = 1\n\n"
+                    "- 外层甲\n    - 内层乙\n\n"
+                    "1. 外序甲\n    1. 内序乙\n"
                 )
+                # P6c 任务 B 回归：题号前缀（第3题 ）单独 esc、正文单独 md —— 首行 `## …` 必须成 <h2>
+                math_ans2 = "## 前缀标题自测\n\n题号前缀不许顶掉首行标题。"
                 math_row = {
                     "id": math_sid,
                     "title": math_title,
@@ -1913,12 +1921,14 @@ def main():
                                     { role: 'user', ts: v.row.created, text: '题目：公式渲染自测' },
                                     { kind: 'answer', ts: v.row.updated, ans: v.ans,
                                       why: '补充：先化简再代入' },
+                                    { kind: 'answer', ts: v.row.updated + 1000, no: 3, ans: v.ans2 },
                                 ],
                             },
                         });
                         return true;
                     }""",
-                    {"row": math_row, "sid": math_sid, "title": math_title, "ans": math_ans, "orig": orig_idx},
+                    {"row": math_row, "sid": math_sid, "title": math_title,
+                     "ans": math_ans, "ans2": math_ans2, "orig": orig_idx},
                 )
                 rm = ctx.new_page()
                 rm.on("pageerror", lambda e: print("[pageerror]", e, flush=True))
@@ -1993,23 +2003,52 @@ def main():
                             litQuote: ans.textContent.includes('> 引用甲'),
                             litOl: ans.textContent.includes('1. 有序甲'),
                             litFence: ans.textContent.includes('```'),
+                            em: q('em'),
+                            imgSrc: (ans.querySelector('img') || {}).src || '',
+                            imgMax: (() => { const i = ans.querySelector('img');
+                                return i ? getComputedStyle(i).maxWidth : ''; })(),
+                            pre2Text: (() => { const p = ans.querySelectorAll('pre');
+                                return p[1] ? p[1].textContent.trim() : ''; })(),
+                            ulUl: ans.querySelectorAll('ul ul').length,
+                            olOl: ans.querySelectorAll('ol ol').length,
+                            litEm: ans.textContent.includes('*斜体自测*'),
+                            litIndent: ans.textContent.includes('    indent_code_a'),
+                            litNest: ans.textContent.includes('- 内层乙') || ans.textContent.includes('1. 内序乙'),
                         };
                     }"""
                 )
                 check(
                     "P6 整页：行结构渲染（h2/h3/table 表头表体/ul/ol/hr 齐全 + 标题与表格样式生效）",
                     blk["h2"] == 1 and blk["h3"] == 1 and blk["table"] == 1 and blk["th"] == 2
-                    and blk["td"] == 2 and blk["ul"] == 1 and blk["ulli"] == 2 and blk["hr"] == 1
-                    and blk["ol"] == 1 and blk["olli"] == 2
+                    and blk["td"] == 2 and blk["ul"] == 3 and blk["ulli"] == 4 and blk["hr"] == 1
+                    and blk["ol"] == 3 and blk["olli"] == 4
                     and blk["h2w"] == "700" and blk["bc"] == "collapse",
                     str(blk),
                 )
                 check(
                     "P6 整页：围栏代码渲染（pre>code + language-js + 横向滚样式 + 无字面 ``` 与 1. 序号）",
-                    blk["pre"] == 1 and blk["preLang"] == "language-js" and blk["preOv"] == "auto"
+                    blk["pre"] == 2 and blk["preLang"] == "language-js" and blk["preOv"] == "auto"
                     and not blk["litFence"] and not blk["litOl"],
                     f"pre={blk['pre']} lang={blk['preLang']} ov={blk['preOv']} "
                     f"litFence={blk['litFence']} litOl={blk['litOl']}",
+                )
+                check(
+                    "P6 整页：行内斜体与图片落地（<em> 落地、<img src=https> 且 max-width:100%、无字面 *斜体自测*）",
+                    blk["em"] == 1 and blk["imgSrc"].startswith("https://")
+                    and blk["imgMax"] == "100%" and not blk["litEm"],
+                    f"em={blk['em']} src={blk['imgSrc']} max={blk['imgMax']} litEm={blk['litEm']}",
+                )
+                check(
+                    "P6 整页：4 空格缩进代码块落地（第二个 pre>code 内容正确、无字面缩进行）",
+                    blk["pre2Text"] == "indent_code_a = 1" and not blk["litIndent"],
+                    f"pre2={blk['pre2Text']!r} litIndent={blk['litIndent']}",
+                )
+                check(
+                    "P6 整页：嵌套列表落地（ul>ul 与 ol>ol 各一条、li 数正确、无字面嵌套记号）",
+                    blk["ulUl"] == 1 and blk["olOl"] == 1 and blk["ulli"] == 4 and blk["olli"] == 4
+                    and not blk["litNest"],
+                    f"ulUl={blk['ulUl']} olOl={blk['olOl']} ulli={blk['ulli']} "
+                    f"olli={blk['olli']} litNest={blk['litNest']}",
                 )
                 check(
                     "P6 整页：引用块渲染（blockquote + 左框线样式生效 + 无字面 > 记号）",
@@ -2020,6 +2059,36 @@ def main():
                     "P6 整页：字面 markdown 行（## 标题 / 表头行 / - 列表）不再原样保留",
                     not blk["litHead"] and not blk["litPipe"] and not blk["litDash"],
                     f"head={blk['litHead']} pipe={blk['litPipe']} dash={blk['litDash']}",
+                )
+                # P6c 两条新契约（整页侧）：①宽表格外套 .tablewrap 横向滚；②题号前缀不顶掉首行标题
+                mm = rm.evaluate(
+                    """() => {
+                        const ans = document.querySelector('#history .msg.bot .ans');
+                        const w = ans.querySelector('.tablewrap');
+                        const tb = ans.querySelector('table');
+                        const last = [...document.querySelectorAll('#history .msg.bot .ans')].pop();
+                        const h = last.querySelector('h2');
+                        return {
+                            ov: w ? getComputedStyle(w).overflowX : '',
+                            wm: w ? getComputedStyle(w).marginTop : '',
+                            inner: !!(w && w.firstElementChild && w.firstElementChild.tagName === 'TABLE'),
+                            tm: tb ? getComputedStyle(tb).marginTop : '',
+                            h2: h ? h.textContent : '',
+                            h2n: last.querySelectorAll('h2').length,
+                            pre: last.textContent.startsWith('第3题 '),
+                            lit: last.textContent.includes('## 前缀标题自测'),
+                        };
+                    }"""
+                )
+                check(
+                    "P6 整页：宽表格外套 .tablewrap（overflow-x:auto、内层仍是 <table>、间距由外层给）",
+                    mm["ov"] == "auto" and mm["wm"] == "7px" and mm["inner"] and mm["tm"] == "0px",
+                    str(mm),
+                )
+                check(
+                    "P6 整页：题号前缀不顶掉首行标题（「第3题 」仍在正文前 + 首行成 <h2> + 无字面 ## 残留）",
+                    mm["h2"] == "前缀标题自测" and mm["h2n"] == 1 and mm["pre"] and not mm["lit"],
+                    str(mm),
                 )
                 rm.screenshot(path=str(SHOTS / "18-review-katex.png"))
                 rm.close()
@@ -2080,6 +2149,18 @@ def main():
                                 litQuote: ans ? ans.textContent.includes('> 引用甲') : true,
                                 litOl: ans ? ans.textContent.includes('1. 有序甲') : true,
                                 litFence: ans ? ans.textContent.includes('```') : true,
+                                em: q('em'),
+                                imgSrc: (ans && ans.querySelector('img')) ? ans.querySelector('img').src : '',
+                                imgMax: (() => { const i = ans && ans.querySelector('img');
+                                    return i ? getComputedStyle(i).maxWidth : ''; })(),
+                                pre2Text: (() => { const p = ans ? ans.querySelectorAll('pre') : [];
+                                    return p[1] ? p[1].textContent.trim() : ''; })(),
+                                ulUl: ans ? ans.querySelectorAll('ul ul').length : 0,
+                                olOl: ans ? ans.querySelectorAll('ol ol').length : 0,
+                                litEm: ans ? ans.textContent.includes('*斜体自测*') : true,
+                                litIndent: ans ? ans.textContent.includes('    indent_code_a') : true,
+                                litNest: ans ? (ans.textContent.includes('- 内层乙')
+                                    || ans.textContent.includes('1. 内序乙')) : true,
                             },
                         };
                     }"""
@@ -2098,23 +2179,72 @@ def main():
                 check(
                     "P6 抽屉：shadow root 里行结构同样落地（h2/h3/table/ul/ol/hr + 样式，无字面 ## 行）",
                     dblk["h2"] == 1 and dblk["h3"] == 1 and dblk["table"] == 1 and dblk["th"] == 2
-                    and dblk["td"] == 2 and dblk["ul"] == 1 and dblk["ulli"] == 2
-                    and dblk["ol"] == 1 and dblk["olli"] == 2 and dblk["hr"] == 1
+                    and dblk["td"] == 2 and dblk["ul"] == 3 and dblk["ulli"] == 4
+                    and dblk["ol"] == 3 and dblk["olli"] == 4 and dblk["hr"] == 1
                     and dblk["h2w"] == "700" and dblk["bc"] == "collapse"
                     and not dblk["litHead"] and not dblk["litDash"],
                     str(dblk),
                 )
                 check(
                     "P6 抽屉：shadow root 里围栏代码同样落地（pre>code + language-js + 无字面 ```）",
-                    dblk["pre"] == 1 and dblk["preLang"] == "language-js" and dblk["preOv"] == "auto"
+                    dblk["pre"] == 2 and dblk["preLang"] == "language-js" and dblk["preOv"] == "auto"
                     and not dblk["litFence"] and not dblk["litOl"],
                     f"pre={dblk['pre']} lang={dblk['preLang']} ov={dblk['preOv']} "
                     f"litFence={dblk['litFence']} litOl={dblk['litOl']}",
                 )
                 check(
+                    "P6 抽屉：行内斜体与图片同样落地（<em>、<img src=https> 且 max-width:100%、无字面 *斜体自测*）",
+                    dblk["em"] == 1 and dblk["imgSrc"].startswith("https://")
+                    and dblk["imgMax"] == "100%" and not dblk["litEm"],
+                    f"em={dblk['em']} src={dblk['imgSrc']} max={dblk['imgMax']} litEm={dblk['litEm']}",
+                )
+                check(
+                    "P6 抽屉：4 空格缩进代码块同样落地（第二个 pre>code 内容正确、无字面缩进行）",
+                    dblk["pre2Text"] == "indent_code_a = 1" and not dblk["litIndent"],
+                    f"pre2={dblk['pre2Text']!r} litIndent={dblk['litIndent']}",
+                )
+                check(
+                    "P6 抽屉：嵌套列表同样落地（ul>ul 与 ol>ol 各一条、li 数正确、无字面嵌套记号）",
+                    dblk["ulUl"] == 1 and dblk["olOl"] == 1 and dblk["ulli"] == 4 and dblk["olli"] == 4
+                    and not dblk["litNest"],
+                    f"ulUl={dblk['ulUl']} olOl={dblk['olOl']} ulli={dblk['ulli']} "
+                    f"olli={dblk['olli']} litNest={dblk['litNest']}",
+                )
+                check(
                     "P6 抽屉：shadow root 里引用块同样落地（blockquote + 样式生效 + 无字面 > 记号）",
                     dblk["bq"] == 1 and dblk["bqw"] == "3px" and not dblk["litQuote"],
                     f"bq={dblk['bq']} bqw={dblk['bqw']} litQuote={dblk['litQuote']}",
+                )
+                # P6c 两条新契约（抽屉 shadow 侧）：与整页同口径（①表格外套 ②题号前缀不顶掉首行标题）
+                dmm = dp.evaluate(
+                    """() => {
+                        const sr = document.querySelector('spore-drawer').shadowRoot;
+                        const ans = sr.querySelector('#stream .msg.bot .ans');
+                        const w = ans.querySelector('.tablewrap');
+                        const tb = ans.querySelector('table');
+                        const last = [...sr.querySelectorAll('#stream .msg.bot .ans')].pop();
+                        const h = last.querySelector('h2');
+                        return {
+                            ov: w ? getComputedStyle(w).overflowX : '',
+                            wm: w ? getComputedStyle(w).marginTop : '',
+                            inner: !!(w && w.firstElementChild && w.firstElementChild.tagName === 'TABLE'),
+                            tm: tb ? getComputedStyle(tb).marginTop : '',
+                            h2: h ? h.textContent : '',
+                            h2n: last.querySelectorAll('h2').length,
+                            pre: last.textContent.startsWith('第3题 '),
+                            lit: last.textContent.includes('## 前缀标题自测'),
+                        };
+                    }"""
+                )
+                check(
+                    "P6 抽屉：宽表格同样外套 .tablewrap（overflow-x:auto、内层仍是 <table>、间距归零）",
+                    dmm["ov"] == "auto" and dmm["wm"] == "7px" and dmm["inner"] and dmm["tm"] == "0px",
+                    str(dmm),
+                )
+                check(
+                    "P6 抽屉：题号前缀同样不顶掉首行标题（「第3题 」在前 + <h2> 落地 + 无字面 ## 残留）",
+                    dmm["h2"] == "前缀标题自测" and dmm["h2n"] == 1 and dmm["pre"] and not dmm["lit"],
+                    str(dmm),
                 )
                 dp.screenshot(path=str(SHOTS / "19-drawer-katex.png"))
                 dp.close()

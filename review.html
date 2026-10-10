@@ -207,6 +207,12 @@
       .msg code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 14px; background: #f4f6fd; border: 1px solid #eef0f8; border-radius: 5px; padding: 0 4px }
       .msg a { color: #c2185b; text-decoration: none; border-bottom: 1px solid #f7c8da }
       .msg strong { font-weight: 650; color: #14172a }
+      /* md 行内新增：斜体与图片（图片按块级落地、限宽不溢屏；.shot 是用户截图，走 .msg.user 那条规则） */
+      .msg em { font-style: italic }
+      .msg img {
+        display: block; max-width: 100%; height: auto;
+        margin: 6px 0; border-radius: 6px; border: 1px solid var(--border);
+      }
       .katex-display { overflow-x: auto; overflow-y: hidden; margin: 0.5em 0 }
 
       /* ---- md 行结构（md.js 产出：标题/表格/列表/分隔线；与抽屉 shadow 内同一套口径） ---- */
@@ -217,8 +223,12 @@
       .msg h2 { font-size: 1.2em }
       .msg h3 { font-size: 1.1em }
       .msg h4, .msg h5, .msg h6 { font-size: 1em }
+      /* 宽表格横向滚动：md.js 把 <table> 套进 .tablewrap，内层表格 margin 归零、宽度交给内容
+         （width:auto + min-width:100%：窄表仍占满、宽表真的滚起来；与移动端 panel.css 同口径） */
+      .msg .tablewrap { overflow-x: auto; margin: 7px 0 }
+      .msg .tablewrap > table { margin: 0; width: auto; min-width: 100% }
       .msg table {
-        border-collapse: collapse; width: 100%; margin: 7px 0;
+        border-collapse: collapse; width: 100%; margin: 0;
         font-size: 14px; font-weight: 400; border: 1px solid var(--border);
       }
       .msg th, .msg td {
