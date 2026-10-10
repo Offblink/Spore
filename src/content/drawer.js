@@ -98,6 +98,23 @@
   border:1px solid #eef0f8;border-radius:5px;padding:0 4px}
 .msg.bot a{color:#c2185b;text-decoration:none;border-bottom:1px solid #f7c8da}
 .msg.bot strong{font-weight:650;color:#14172a}
+/* ---- md 行结构（md.js 产出：标题/表格/列表/分隔线；与移动端 panel.css 同口径） ---- */
+.msg.bot h1,.msg.bot h2,.msg.bot h3,.msg.bot h4,.msg.bot h5,.msg.bot h6{margin:10px 0 6px;
+  font-weight:700;color:#14172a;line-height:1.45}
+.msg.bot h1{font-size:1.3em}
+.msg.bot h2{font-size:1.2em}
+.msg.bot h3{font-size:1.1em}
+.msg.bot h4,.msg.bot h5,.msg.bot h6{font-size:1em}
+.msg.bot table{border-collapse:collapse;width:100%;margin:7px 0;font-size:14px;font-weight:400;
+  border:1px solid #e6e8f2}
+.msg.bot th,.msg.bot td{border:1px solid #e6e8f2;padding:5px 9px;text-align:left;overflow-wrap:break-word}
+.msg.bot th{background:#f2f4fb;color:#14172a;font-weight:650}
+.msg.bot td{color:#4a4f6b}
+.msg.bot ul{margin:6px 0;padding-left:1.4em}
+.msg.bot li{margin:2px 0}
+.msg.bot hr{border:0;border-top:1px solid #e6e8f2;margin:9px 0}
+/* 表格与标题里的公式别撑破气泡（长块级公式横向滚） */
+.msg.bot .katex-display{overflow-x:auto;overflow-y:hidden;margin:.5em 0}
 .think{display:none;margin:0 0 7px;border-left:2px solid #e9eaf4;padding:2px 0 3px 10px}
 .think.on{display:block}
 .think-h{display:flex;align-items:center;gap:5px;border:0;background:transparent;padding:0;cursor:pointer;

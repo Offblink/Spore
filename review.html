@@ -207,6 +207,29 @@
       .msg code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 14px; background: #f4f6fd; border: 1px solid #eef0f8; border-radius: 5px; padding: 0 4px }
       .msg a { color: #c2185b; text-decoration: none; border-bottom: 1px solid #f7c8da }
       .msg strong { font-weight: 650; color: #14172a }
+      .katex-display { overflow-x: auto; overflow-y: hidden; margin: 0.5em 0 }
+
+      /* ---- md 行结构（md.js 产出：标题/表格/列表/分隔线；与抽屉 shadow 内同一套口径） ---- */
+      .msg h1, .msg h2, .msg h3, .msg h4, .msg h5, .msg h6 {
+        margin: 10px 0 6px; font-weight: 700; color: var(--text); line-height: 1.45;
+      }
+      .msg h1 { font-size: 1.3em }
+      .msg h2 { font-size: 1.2em }
+      .msg h3 { font-size: 1.1em }
+      .msg h4, .msg h5, .msg h6 { font-size: 1em }
+      .msg table {
+        border-collapse: collapse; width: 100%; margin: 7px 0;
+        font-size: 14px; font-weight: 400; border: 1px solid var(--border);
+      }
+      .msg th, .msg td {
+        border: 1px solid var(--border); padding: 5px 9px;
+        text-align: left; overflow-wrap: break-word;
+      }
+      .msg th { background: #f2f4fb; color: var(--text); font-weight: 650 }
+      .msg td { color: #4a4f6b }
+      .msg ul { margin: 6px 0; padding-left: 1.4em }
+      .msg li { margin: 2px 0 }
+      .msg hr { border: 0; border-top: 1px solid var(--border); margin: 9px 0 }
 
       /* ---- 行内操作（重命名 / 删除）：从抽屉复制过来的同一套交互 ---- */
       .row .r, .row .x {

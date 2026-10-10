@@ -1888,6 +1888,9 @@ def main():
                     "块级 $$\\frac{1}{2}$$ 与 \\[x+y\\]；"
                     "坏公式 $\\notacommand$ 原样保留；"
                     "价格 $5 不吃，单价 $5，$8 元也不吃；转义 \\$5 是字面美元"
+                    # P6 行结构（与 Spore-Mobile renderBlocks 同口径）：标题/列表/表格/分隔线
+                    "\n\n## 行结构自测\n\n- 列表甲\n- 列表乙\n\n"
+                    "| 左 | 右 |\n|---|---|\n| 甲 | 乙 |\n\n---\n\n### 三级标题\n"
                 )
                 math_row = {
                     "id": math_sid,
@@ -1961,6 +1964,38 @@ def main():
                     "$\\notacommand$" in doc,
                     "$\\notacommand$" in doc,
                 )
+                # P6b 行结构（md.js 新增：ATX/setext 标题、GFM 表格、无序列表、分隔线；
+                # 语义与 Spore-Mobile renderBlocks 同口径。样式断言同挂在同一条 check 上）
+                blk = rm.evaluate(
+                    """() => {
+                        const ans = document.querySelector('#history .msg.bot .ans');
+                        const q = (s) => ans.querySelectorAll(s).length;
+                        const h2 = ans.querySelector('h2');
+                        const tb = ans.querySelector('table');
+                        const doc = document.querySelector('#history').textContent;
+                        return {
+                            h2: q('h2'), h3: q('h3'), table: q('table'), th: q('th'), td: q('td'),
+                            ul: q('ul'), li: q('li'), hr: q('hr'),
+                            h2w: h2 ? getComputedStyle(h2).fontWeight : '',
+                            bc: tb ? getComputedStyle(tb).borderCollapse : '',
+                            litHead: doc.includes('## 行结构自测'),
+                            litPipe: doc.includes('| 左 | 右 |'),
+                            litDash: ans.textContent.includes('- 列表甲'),
+                        };
+                    }"""
+                )
+                check(
+                    "P6 整页：行结构渲染（h2/h3/table 表头表体/ul/hr 齐全 + 标题与表格样式生效）",
+                    blk["h2"] == 1 and blk["h3"] == 1 and blk["table"] == 1 and blk["th"] == 2
+                    and blk["td"] == 2 and blk["ul"] == 1 and blk["li"] == 2 and blk["hr"] == 1
+                    and blk["h2w"] == "700" and blk["bc"] == "collapse",
+                    str(blk),
+                )
+                check(
+                    "P6 整页：字面 markdown 行（## 标题 / 表头行 / - 列表）不再原样保留",
+                    not blk["litHead"] and not blk["litPipe"] and not blk["litDash"],
+                    f"head={blk['litHead']} pipe={blk['litPipe']} dash={blk['litDash']}",
+                )
                 rm.screenshot(path=str(SHOTS / "18-review-katex.png"))
                 rm.close()
 
@@ -1991,6 +2026,10 @@ def main():
                         const one = els[0];
                         const link = sr.querySelector('link[href*="katex.min.css"]');
                         const doc = sr.querySelector('#stream').textContent;
+                        const ans = sr.querySelector('#stream .msg.bot .ans');
+                        const q = (s) => (ans ? ans.querySelectorAll(s).length : 0);
+                        const h2 = ans && ans.querySelector('h2');
+                        const tb = ans && ans.querySelector('table');
                         return {
                             n: els.length,
                             h: one ? one.offsetHeight : 0,
@@ -1998,6 +2037,14 @@ def main():
                             link: !!(link && link.sheet),
                             has5: doc.includes('$5') && doc.includes('$8'),
                             bad: doc.includes('$' + String.fromCharCode(92) + 'notacommand$'),
+                            blk: {
+                                h2: q('h2'), h3: q('h3'), table: q('table'), th: q('th'), td: q('td'),
+                                ul: q('ul'), li: q('li'), hr: q('hr'),
+                                h2w: h2 ? getComputedStyle(h2).fontWeight : '',
+                                bc: tb ? getComputedStyle(tb).borderCollapse : '',
+                                litHead: doc.includes('## 行结构自测'),
+                                litDash: ans ? ans.textContent.includes('- 列表甲') : true,
+                            },
                         };
                     }"""
                 )
@@ -2010,6 +2057,15 @@ def main():
                     "P6 抽屉：价格与坏公式源码同样原样",
                     dinfo["has5"] and dinfo["bad"],
                     f"has5={dinfo['has5']} bad={dinfo['bad']}",
+                )
+                dblk = dinfo["blk"]
+                check(
+                    "P6 抽屉：shadow root 里行结构同样落地（h2/h3/table/ul/hr + 样式，无字面 ## 行）",
+                    dblk["h2"] == 1 and dblk["h3"] == 1 and dblk["table"] == 1 and dblk["th"] == 2
+                    and dblk["td"] == 2 and dblk["ul"] == 1 and dblk["li"] == 2 and dblk["hr"] == 1
+                    and dblk["h2w"] == "700" and dblk["bc"] == "collapse"
+                    and not dblk["litHead"] and not dblk["litDash"],
+                    str(dblk),
                 )
                 dp.screenshot(path=str(SHOTS / "19-drawer-katex.png"))
                 dp.close()
