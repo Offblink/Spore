@@ -901,7 +901,6 @@
   // ---- 多选批量操作（底栏）：全走已有 post 协议，批量收藏只弹一条 toast ----
   // 入口：head 的「批量选择」按钮（0 选起手），模式里它自己变成「退出选择」
   $('#selBtn').addEventListener('click', () => setSelecting(!state.selecting));
-  $('#selCancel').addEventListener('click', () => setSelecting(false));
 
   /** 批量收藏：全已收藏 → 这次统一取消；否则把没收藏的都收上（单条 toggleFav 会 N 连弹，不能复用） */
   $('#bFav').addEventListener('click', () => {

@@ -1563,6 +1563,18 @@ def main():
                 btn_txt = rev.evaluate("() => document.getElementById('selBtn').textContent")
                 check("模式里入口按钮文案变「退出选择」", btn_txt == "退出选择", btn_txt)
 
+                # 底栏不许横向溢出（2026-11-03 用户截图：键太多把「取消」挤出面板；
+                # 删掉「取消」后 count+全选+三件批量必须整行装下）
+                bar_box = rev.evaluate(
+                    "() => { const b = document.getElementById('batchbar');"
+                    " return { sw: b.scrollWidth, cw: b.clientWidth }; }"
+                )
+                check(
+                    "底栏不横向溢出（「取消」已删，四键装得下）",
+                    bar_box["sw"] <= bar_box["cw"] + 1,
+                    f"scrollWidth={bar_box['sw']} clientWidth={bar_box['cw']}",
+                )
+
                 # 底栏「全选」：0 选 → 一次勾上全部可见行 → 再点全清
                 rev.click("#selAll")
                 rev.wait_for_timeout(200)
@@ -1726,11 +1738,17 @@ def main():
                     "cancelled",
                 )
 
-                # 退出多选四条路：入口按钮再点 / 底栏「取消」/ Escape / 模式里换筛选
-                rev.click("#selCancel")
+                # 底栏「取消」已删（2026-11-03 用户拍板：head 的「退出选择」已是退出路，
+                # 且五键挤一行会把「取消」挤出面板）——退出语义改由 #selBtn 这条路钉住
+                check(
+                    "底栏不再有「取消」按钮",
+                    not rev.evaluate("() => document.getElementById('selCancel')"),
+                    "gone",
+                )
+                rev.click("#selBtn")
                 rev.wait_for_timeout(250)
                 check(
-                    "点底栏「取消」退出多选（sel 撤、底栏收、选中清零、单选框藏回）",
+                    "退出多选（sel 撤、底栏收、选中清零、单选框藏回）",
                     not ms_sel()
                     and rev.evaluate("() => document.getElementById('batchbar').hidden")
                     and not any(r["on"] for r in ms_rows())
@@ -1879,7 +1897,7 @@ def main():
                 rev.screenshot(path=str(SHOTS / "17-review-edge-scroll.png"))
                 # 收尾：退多选、删播种、活动会话原样
                 if ms_sel():
-                    rev.click("#selCancel")
+                    rev.click("#selBtn")
                     rev.wait_for_timeout(250)
                 sw.evaluate(
                     "async (v) => { await chrome.storage.local.set({ 'spore.index': v }); return true; }",
