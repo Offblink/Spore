@@ -25,9 +25,17 @@ async function load() {
   setText('rootEcho', merged.mirrorRoot);
   syncMirrorBody();
 
-  const sc = await chrome.storage.local.get(['spore.shortcut', 'spore.shortcut.toggle']);
-  setText('kbd', sc['spore.shortcut'] || '（未绑定）');
-  setText('kbdToggle', sc['spore.shortcut.toggle'] || '（未绑定）');
+  // 快捷键以 chrome.commands 的**实时值**为准：storage 里那份是 SW 启动时的缓存，
+  // 可能停在「命令还没注册/键名改过」的那次写入上——读缓存会把已绑定的显示成「未绑定」。
+  const live = await chrome.commands.getAll().catch(() => null);
+  if (live && live.length) {
+    setText('kbd', live.find((c) => c.name === 'capture-region')?.shortcut || '（未绑定）');
+    setText('kbdToggle', live.find((c) => c.name === 'toggle-drawer')?.shortcut || '（未绑定）');
+  } else {
+    const sc = await chrome.storage.local.get(['spore.shortcut', 'spore.shortcut.toggle']);
+    setText('kbd', sc['spore.shortcut'] || '（未绑定）');
+    setText('kbdToggle', sc['spore.shortcut.toggle'] || '（未绑定）');
+  }
 }
 
 async function defaults() {

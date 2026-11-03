@@ -1171,8 +1171,18 @@ def main():
                 opt.wait_for_timeout(600)
                 check("设置页无 JS 报错", not errs, str(errs)[:160])
 
+                # 快捷键显示必须取 chrome.commands 实时值（读 storage 缓存会显示「未绑定」）
+                opt.wait_for_timeout(400)
+                kbd = opt.evaluate("() => document.getElementById('kbd').textContent")
+                kbd_t = opt.evaluate("() => document.getElementById('kbdToggle').textContent")
+                check(
+                    "设置页快捷键显示实时绑定（不误报「未绑定」）",
+                    kbd == "Alt+S" and kbd_t == "Alt+Z",
+                    f"{kbd!r} {kbd_t!r}",
+                )
+
                 # 分页：左边索引，右边一次只显示一页
-                for name in ("model", "mirror", "keys", "capture", "log"):
+                for name in ("model", "mirror", "keys", "log"):
                     opt.click(f'.idx a[data-sec="{name}"]')
                     opt.wait_for_timeout(120)
                     vis = opt.evaluate(
@@ -1553,6 +1563,27 @@ def main():
                 btn_txt = rev.evaluate("() => document.getElementById('selBtn').textContent")
                 check("模式里入口按钮文案变「退出选择」", btn_txt == "退出选择", btn_txt)
 
+                # 底栏「全选」：0 选 → 一次勾上全部可见行 → 再点全清
+                rev.click("#selAll")
+                rev.wait_for_timeout(200)
+                onv = [r["on"] for r in ms_rows()]
+                sa_txt = rev.evaluate("() => document.getElementById('selAll').textContent")
+                cnt_sa = rev.evaluate("() => document.getElementById('selCount').textContent")
+                check(
+                    "底栏「全选」勾上全部可见行、文案换「取消全选」、计数同步",
+                    onv == [True, True] and sa_txt == "取消全选" and cnt_sa == "已选 2 项",
+                    f"on={onv} txt={sa_txt!r} count={cnt_sa!r}",
+                )
+                rev.click("#selAll")
+                rev.wait_for_timeout(200)
+                onv = [r["on"] for r in ms_rows()]
+                sa_txt = rev.evaluate("() => document.getElementById('selAll').textContent")
+                check(
+                    "再点「取消全选」全清并回到「全选」",
+                    onv == [False, False] and sa_txt == "全选",
+                    f"on={onv} txt={sa_txt!r}",
+                )
+
                 # 模式内点卡片 = 勾选（不打开会话）
                 rev.locator("#list .row").nth(idx_a).locator(".t").click()
                 rev.wait_for_timeout(200)
@@ -1633,12 +1664,25 @@ def main():
                 rev.wait_for_timeout(700)
                 in_n = rev.evaluate("() => document.querySelectorAll('#list .row.in').length")
                 check(
-                    "批量移入生效：两行都进科目、弹层已关、模式还在",
+                    "批量移入生效：两行都进科目、弹层已关、并退出多选（清选中）",
                     in_n == 2
-                    and ms_n() == 2
                     and not rev.evaluate("() => document.getElementById('subpick').classList.contains('on')")
-                    and ms_sel(),
-                    f"in={in_n} rows={ms_n()}",
+                    and not ms_sel()
+                    and rev.evaluate("() => document.getElementById('batchbar').hidden")
+                    and rev.evaluate("() => document.getElementById('selBtn').textContent") == "批量选择",
+                    f"in={in_n} sel={ms_sel()} rows={ms_n()}",
+                )
+
+                # 归属变了就该清选中 → 后面的批量用例重新进模式、把两张选回来
+                ms_enter()
+                for i in range(ms_n()):
+                    rev.locator("#list .row").nth(i).locator(".t").click()
+                    rev.wait_for_timeout(150)
+                onv = [r["on"] for r in ms_rows()]
+                check(
+                    "移入退出多选后可重新进模式选回（供后续批量用例）",
+                    ms_sel() and onv == [True, True],
+                    f"sel={ms_sel()} on={onv}",
                 )
 
                 # 批量收藏：只弹一条 toast；再点时全已收藏 → 统一取消

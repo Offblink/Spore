@@ -298,6 +298,10 @@
       .bbtn.danger:hover { background: #fbdde3 }
       .bbtn.plain { background: #f1f3fb; color: #4a4f6b }
       .bbtn.plain:hover { background: #e8ebf7 }
+      /* 全选：次级文字动作，不吃 flex——让三个批量键保持原宽 */
+      .bbtn.selall { flex: none; padding: 8px 6px; background: transparent; color: var(--accent2); font-weight: 650 }
+      .bbtn.selall:hover { background: #f1f3fb }
+      .bbtn.selall:disabled { opacity: .45; cursor: default }
       .bbtn:disabled { opacity: 0.4; cursor: default; pointer-events: none }
 
       /* ---- 底部输入（与抽屉同款语义，Enter 发送） ---- */
@@ -416,6 +420,7 @@
         <div id="list"></div>
         <footer id="batchbar" hidden>
           <span class="bcount" id="selCount">已选 0 项</span>
+          <button class="bbtn selall" id="selAll" type="button">全选</button>
           <button class="bbtn" id="bFav" type="button">收藏</button>
           <button class="bbtn" id="bMove" type="button">移入科目</button>
           <button class="bbtn danger" id="bDel" type="button">删除</button>

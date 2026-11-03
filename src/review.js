@@ -271,6 +271,16 @@
       const el = document.getElementById(id);
       if (el) el.disabled = n === 0;
     }
+    // 全选只看当前可见行；已全选 → 文案换「取消全选」
+    const vis = rowsArr().filter((r) => r.offsetParent !== null);
+    const sa = $('#selAll');
+    if (sa) {
+      sa.textContent =
+        vis.length > 0 && vis.every((r) => state.selected.has(r.dataset.sid))
+          ? '取消全选'
+          : '全选';
+      sa.disabled = vis.length === 0;
+    }
   }
 
   function rowsArr() {
@@ -289,6 +299,15 @@
     else state.selected.delete(sid);
     const el = rowsArr().find((r) => r.dataset.sid === sid);
     if (el) el.classList.toggle('on', on);
+    syncSelChrome();
+  }
+
+  /** 全选/取消全选：只动**当前可见**的会话行（折叠科目里的成员、别的筛选下看不见的不碰） */
+  function toggleSelectAll() {
+    const vis = rowsArr().filter((r) => r.offsetParent !== null);
+    if (!vis.length) return;
+    const allOn = vis.every((r) => state.selected.has(r.dataset.sid));
+    for (const r of vis) setRowSel(r.dataset.sid, !allOn); // 幂等：已到目标态的直接跳过
     syncSelChrome();
   }
 
@@ -907,6 +926,8 @@
     if (state.selected.size) openPicker([...state.selected]);
   });
 
+  $('#selAll').addEventListener('click', toggleSelectAll);
+
   /** 批量删除：确认框带条数，确定后逐条走 delete 协议、成功即退多选 */
   $('#bDel').addEventListener('click', () => {
     const n = state.selected.size;
@@ -952,6 +973,10 @@
     const sub = b.dataset.sub || null;
     for (const sid of ids) post({ type: 'subject', op: 'assign', sid, sub });
     closePicker();
+    // 移入/移出改的是归属 → 列表会按科目重排，选中集必须跟着清掉：
+    // 不退多选的话，重排后那些行还挂着选中态（用户 2026-11-03 实测反馈「这并不对」）。
+    // 与批量删除同口径：批量操作成功即退多选（mobile/desktop 同款修）。
+    if (state.selecting) setSelecting(false);
   });
   $('#pickNo').addEventListener('click', closePicker);
   $('#subpick').addEventListener('click', (e) => {
