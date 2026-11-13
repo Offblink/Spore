@@ -89,8 +89,14 @@ export function timeStr(d = new Date()) {
   return `${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
+/**
+ * 会话 id：`yyyyMMdd-HHmmssSSS`（毫秒，与服务端 article.id 的建表注释同口径）。
+ * 带毫秒是为了跨设备防撞号——服务端按 id 合并，秒级同秒会把两端的会话并成一条。
+ * 老的 15 位 id 保持原样，不迁移（id 就是存储键与镜像文件名）。
+ */
 export function newId(d = new Date()) {
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${timeStr(d)}`;
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${timeStr(d)}${ms}`;
 }
 
 export async function listSessions() {

@@ -213,4 +213,4 @@ Fungi 是「贴底就跟随，上滑就锁定」。本项目按需求改成：**
 2. 收藏/改名/移科目这类元数据改动**必须抬 `updated`**（`touchSession`），否则服务端 LWW 会用旧行盖回来。
 3. 会话在途（answering/verifying/searching）时下行要**挡住游标**（hold 到行时间戳 - 1），下轮再解。
 4. 删除必须同时记墓碑（`sync.recordTombstone`），否则下一轮 pull 把删掉的会话复活。
-5. `article.id varchar(32)`：MV3 仍是秒级 `YYYYMMDD-HHMMSS`，跨设备同秒会撞号（服务端会把行迁籍给后推者）——已知风险，暂不改 id 格式。
+5. `article.id varchar(32)`：MV3 新会话 id 已改成**毫秒** `yyyyMMdd-HHmmssSSS`（18 字符，跨设备防撞号；老的 15 位 id 不动），与会建表注释同口径。
