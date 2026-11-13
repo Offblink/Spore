@@ -3,19 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <title>Spore 主页</title>
+    <!-- 令牌与主题运行时：theme.js 必须**同步**跑（不许 defer），首帧才不闪 -->
+    <link rel="stylesheet" href="src/lib/theme.css" />
+    <script src="src/lib/theme.js"></script>
     <style>
-      :root {
-        --accent: #ec4899;
-        --text: #1a1d2e;
-        --muted: #7c819c;
-        --border: #e6e8f2;
-        --bg: #f7f8fc;
-      }
       * { box-sizing: border-box }
       body {
         margin: 0;
         background: var(--bg);
-        color: var(--text);
+        color: var(--ink);
         font: 14px/1.65 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
       }
       [hidden] { display: none !important }
@@ -23,38 +19,38 @@
       .idx {
         position: sticky; top: 0; height: 100vh; box-sizing: border-box;
         width: 200px; flex: none; padding: 30px 16px;
-        background: #fff; border-right: 1px solid var(--border);
+        background: var(--surface); border-right: 1px solid var(--line);
       }
       .idx .brand { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 5px }
       .idx .brand span { color: var(--accent) }
-      .idx .sub { font-size: 12px; line-height: 1.55; color: var(--muted); margin: 0 0 18px }
+      .idx .sub { font-size: 12px; line-height: 1.55; color: var(--ink-3); margin: 0 0 18px }
       .idx a {
         display: flex; align-items: center; justify-content: space-between;
         padding: 9px 12px; border-radius: 10px; margin-bottom: 3px;
-        color: #4a5070; text-decoration: none; font-size: 14px; font-weight: 500;
+        color: var(--ink-2); text-decoration: none; font-size: 14px; font-weight: 500;
       }
-      .idx a:hover { background: #f2f4fb }
-      .idx a.on { background: #14162a; color: #fff; font-weight: 600 }
+      .idx a:hover { background: var(--row-hover) }
+      .idx a.on { background: var(--nav-on-bg); color: var(--nav-on-ink); font-weight: 600 }
       .idx .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: 0 }
-      .idx a.on .dot { opacity: 1 }
+      .idx a.on .dot { opacity: 1; background: var(--nav-on-ink) }
       main { flex: 1; width: auto; max-width: none; padding: 34px 40px 70px; box-sizing: border-box }
       h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em }
       h1 span { color: var(--accent) }
-      p.sub { margin: 0 0 26px; color: var(--muted); font-size: 13px }
+      p.sub { margin: 0 0 26px; color: var(--ink-3); font-size: 13px }
       .card {
-        background: #fff;
-        border: 1px solid var(--border);
+        background: var(--surface);
+        border: 1px solid var(--line);
         border-radius: 16px;
         padding: 20px 22px;
         margin-bottom: 16px;
-        box-shadow: 0 8px 26px rgba(20, 24, 48, 0.05);
+        box-shadow: var(--shadow-1);
       }
       label {
         display: block;
         font-size: 11.5px;
         letter-spacing: 0.1em;
         text-transform: uppercase;
-        color: var(--muted);
+        color: var(--ink-3);
         margin: 16px 0 6px;
       }
       label:first-child { margin-top: 0 }
@@ -63,16 +59,16 @@
       input[type='number'] {
         width: 100%;
         padding: 9px 11px;
-        border: 1px solid var(--border);
+        border: 1px solid var(--line);
         border-radius: 10px;
-        background: #fafbfe;
+        background: var(--surface-2);
         font: 13.5px/1.4 'Cascadia Code', Consolas, monospace;
-        color: var(--text);
+        color: var(--ink);
         outline: none;
       }
-      input:focus { border-color: var(--accent); background: #fff }
+      input:focus { border-color: var(--accent); background: var(--surface) }
       .row { display: flex; gap: 14px; align-items: center; margin-top: 14px; font-size: 13.5px }
-      .row label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 13.5px; color: var(--text) }
+      .row label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 13.5px; color: var(--ink) }
       button {
         border: 0;
         border-radius: 10px;
@@ -83,31 +79,31 @@
         flex: none;
         min-width: 104px;
       }
-      #probe, .btn2 { background: #f1f3fb; color: #4a4f6b }
-      #probe:hover, .btn2:hover { background: #e8ebf7 }
-      #dirState.ok { color: #0f9d58 }
-      #dirState.bad { color: #d02747 }
-      #msg { font-size: 12.5px; color: var(--muted); margin-top: 10px; min-height: 18px }
-      #msg.ok { color: #0f9d58 }
-      #msg.bad { color: #d02747 }
+      #probe, .btn2 { background: var(--ghost); color: var(--ink-2) }
+      #probe:hover, .btn2:hover { background: var(--ghost-hover) }
+      #dirState.ok { color: var(--success) }
+      #dirState.bad { color: var(--danger-strong) }
+      #msg { font-size: 12.5px; color: var(--ink-3); margin-top: 10px; min-height: 18px }
+      #msg.ok { color: var(--success) }
+      #msg.bad { color: var(--danger-strong) }
       kbd {
-        background: #f4f6fd;
-        border: 1px solid var(--border);
+        background: var(--surface-2);
+        border: 1px solid var(--line);
         border-bottom-width: 2px;
         border-radius: 6px;
         padding: 1px 6px;
         font: 12px 'Cascadia Code', monospace;
       }
       a { color: var(--accent) }
-      .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px }
+      .hint { font-size: 12.5px; color: var(--ink-3); margin-top: 8px }
 .logbox {
   margin-top: 10px;
   max-height: 260px;
   overflow: auto;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #12162a;
-  color: #bfe9d0;
+  background: var(--log-bg);
+  color: var(--log-ink);
   font: 12px/1.55 ui-monospace, Consolas, monospace;
   white-space: pre-wrap;
   word-break: break-all;
@@ -115,21 +111,21 @@
 }
       .sec-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px }
       .sec-title { font-size: 16px; font-weight: 650; letter-spacing: -0.01em }
-      .sub { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px }
-      .sub-head { font-size: 13.5px; font-weight: 650; color: #2b2f4a; margin-bottom: 6px }
+      .sub { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px }
+      .sub-head { font-size: 13.5px; font-weight: 650; color: var(--ink); margin-bottom: 6px }
       .tag {
-        font-size: 11px; background: #e7f8ef; color: #0f9d58; border-radius: 999px;
+        font-size: 11px; background: var(--success-bg); color: var(--success); border-radius: 999px;
         padding: 1px 8px; margin-left: 6px; font-weight: 600;
       }
       .switch { display: inline-flex; cursor: pointer; flex: none }
       .switch input { display: none }
       .switch .knob {
-        width: 46px; height: 26px; border-radius: 999px; background: #d9dcea;
+        width: 46px; height: 26px; border-radius: 999px; background: var(--switch-off);
         position: relative; transition: background 0.18s;
       }
       .switch .knob::after {
         content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px;
-        border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+        border-radius: 50%; background: var(--knob); box-shadow: var(--knob-shadow);
         transition: transform 0.18s;
       }
       .switch input:checked + .knob { background: var(--accent) }
@@ -137,25 +133,72 @@
 
       /* ---- 搜题记录是索引第一项，点了直通整页审查（不做右侧分页）---- */
       .idx .gap { height: 20px }
-      .idx .grp { padding: 0 12px 7px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted) }
-      .idx a[data-jump] { color: #14162a; font-weight: 650 }
-      .idx a[data-jump]:hover { background: #ffeef7; color: var(--accent) }
+      .idx .grp { padding: 0 12px 7px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3) }
+      .idx a[data-jump] { color: var(--ink); font-weight: 650 }
+      .idx a[data-jump]:hover { background: var(--accent-soft); color: var(--accent-strong) }
+
+      /* ---- 外观：三档分段控件（跟随系统 / 浅色 / 深色） ---- */
+      .segmented {
+        display: flex; gap: 2px; margin-top: 14px; padding: 4px; max-width: 360px;
+        border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line-soft);
+      }
+      .seg {
+        flex: 1; min-height: 36px; border: 0; border-radius: 999px; background: transparent;
+        color: var(--seg-ink); font: 650 13.5px/1 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+        cursor: pointer; transition: background 0.22s, color 0.22s, box-shadow 0.22s;
+      }
+      .seg:hover { color: var(--ink) }
+      .seg.on {
+        color: var(--on-accent);
+        background: linear-gradient(160deg, var(--accent), var(--accent-strong));
+        box-shadow: 0 6px 18px var(--accent-glow);
+      }
+      .swatch { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap }
+      .swatch div {
+        display: flex; align-items: center; gap: 7px;
+        font-size: 12.5px; color: var(--ink-3);
+      }
+      .swatch i { width: 14px; height: 14px; border-radius: 50%; display: block; flex: none; border: 1px solid var(--line-strong) }
     </style>
   </head>
   <body>
     <div class="shell">
       <nav class="idx">
         <div class="brand"><span>Spore</span> 孢子</div>
-        <p class="sub">搜题记录直通整页审查；下面四张卡是应用设置，左边选右边显示。</p>
+        <p class="sub">搜题记录直通整页审查；下面五张卡是应用设置，左边选右边显示。</p>
         <a href="review.html" data-jump="history">搜题记录</a>
         <div class="gap"></div>
         <div class="grp">应用设置</div>
+        <a href="#theme" data-sec="theme">外观 <i class="dot"></i></a>
         <a href="#model" data-sec="model" class="on">模型 <i class="dot"></i></a>
         <a href="#mirror" data-sec="mirror">磁盘镜像 <i class="dot"></i></a>
         <a href="#keys" data-sec="keys">快捷键 <i class="dot"></i></a>
         <a href="#log" data-sec="log">日志 <i class="dot"></i></a>
       </nav>
       <main>
+
+      <!-- ===== 外观：明暗双板（令牌在 src/lib/theme.css，档位存 spore.settings.theme） ===== -->
+      <div class="card" data-sec="theme">
+        <div class="sec-head">
+          <div>
+            <div class="sec-title">外观</div>
+            <div class="hint" style="margin-top: 3px">
+              浅色 = 孢子粉，深色 = Fungi 青。点一下立即换：设置页、整页审查、网页里的抽屉三面同色，换页也不闪。
+              默认「跟随系统」，系统切深色时自动跟上。
+            </div>
+          </div>
+        </div>
+        <div class="segmented" id="themeSeg" role="group" aria-label="主题">
+          <button type="button" class="seg" data-theme-mode="system">跟随系统</button>
+          <button type="button" class="seg" data-theme-mode="light">浅色</button>
+          <button type="button" class="seg" data-theme-mode="dark">深色</button>
+        </div>
+        <div class="swatch">
+          <div><i style="background: var(--accent)"></i>当前主色</div>
+          <div><i style="background: var(--surface)"></i>面板底</div>
+          <div><i style="background: var(--bg)"></i>页面底</div>
+        </div>
+      </div>
 
       <div class="card" data-sec="model">
         <label for="endpoint">模型 endpoint（OpenAI 兼容）</label>

@@ -1,0 +1,169 @@
+/* Spore 明暗双板 —— 扩展三面（设置页 / 整页审查 / 抽屉）共用同一套令牌。
+ *
+ * 数值与 Spore-Mobile 的 `spore.css` / `values-night/colors.xml` 逐值对齐：
+ *   浅色 = 孢子粉 #EC4899（底 #F2F4FA、面 #FFFFFF）
+ *   深色 = Fungi 青 #2DD4BF（底 #12141C、面 #1B1E29）
+ *
+ * 纪律：页面 CSS 只写 var(--token)，不硬编码颜色、不自己探测系统。
+ * 主题档位（system | light | dark）落在 spore.settings.theme，
+ * 由 `src/lib/theme.js` 解析成 <html data-theme="light|dark">（抽屉落在 host 上）。
+ * 加令牌要四处同步：本文件明/暗两块 + drawer.js 的 THEME_CSS 明/暗两块。
+ */
+
+:root {
+  /* ---------- 明色板（Fungi light） ---------- */
+  color-scheme: light;
+  --bg: #f2f4fa;
+  --surface: #ffffff;
+  --surface-2: #f5f6fc;
+  --surface-3: #eef1f9;
+  --ink: #191c2c;
+  --ink-2: #4a4f6b;
+  --ink-3: #7d83a0;
+  --ink-4: #a9afc7;
+  --placeholder: #a8adc6;
+  --line: #e2e6f1;
+  --line-soft: #edeff7;
+  --line-strong: #d3d8e8;
+  --accent: #ec4899;
+  --accent-strong: #db2777;
+  --accent-deep: #be185d;
+  --accent-soft: rgba(236, 72, 153, .10);
+  --accent-soft-2: rgba(236, 72, 153, .18);
+  --accent-glow: rgba(236, 72, 153, .28);
+  --accent-glow-2: rgba(236, 72, 153, .60);
+  --accent-line: #f7c8da;
+  --on-accent: #ffffff;
+  --success: #0f9d58;
+  --success-bg: #e7f8ef;
+  --danger: #dc2626;
+  --danger-strong: #c81e45;
+  --danger-bg: rgba(220, 38, 38, .08);
+  --danger-bg-2: #fbdde3;
+  --danger-line: #f7d7dc;
+  --danger-line-2: #e88a9c;
+  --warn: #b45309;
+  --warn-bg: #fff7e6;
+
+  /* ---------- 组件专用 ---------- */
+  --label: #9aa0bb;
+  --code-bg: #f4f6fd;
+  --row-hover: #f5f7fd;
+  --fav-row: #fff9ea;
+  --fav-row-hover: #fff3d8;
+  --ghost: #f1f3fb;
+  --ghost-hover: #e8ebf7;
+  --seg-bg: #f2f4fb;
+  --seg-on: #ffffff;
+  --seg-ink: #6b7191;
+  --switch-off: #d9dcea;
+  --knob: #ffffff;
+  --knob-shadow: 0 1px 3px rgba(0, 0, 0, .22);
+  --nav-on-bg: #14162a;
+  --nav-on-ink: #ffffff;
+  --folder: #f9b6d5;
+  --info: #4a5bd8;
+  --info-bg: #eef1ff;
+  --pending: #7c4dbe;
+  --pending-bg: #f4ecff;
+  --scrim: rgba(16, 20, 40, .34);
+  --btn-danger: #ff3b5c;
+  --btn-danger-hover: #ef1f45;
+  --on-btn-danger: #ffffff;
+  --toast-bg: #14172a;
+  --toast-ink: #ffffff;
+  --toast-sub: #c8cbdd;
+  --toast-fail: #ff8fa3;
+  --scroll-thumb: #dfe2ee;
+  --log-bg: #12162a;
+  --log-ink: #bfe9d0;
+  --shadow-1: 0 8px 26px rgba(20, 24, 48, .05);
+  --shadow-2: 0 26px 64px rgba(10, 12, 24, .34);
+  --shadow-pop: 0 18px 44px rgba(16, 20, 40, .20);
+  --shadow-shot: 0 2px 10px rgba(20, 24, 48, .10);
+  --shadow-panel: -8px 0 34px rgba(16, 20, 40, .16);
+  --shadow-jump: 0 6px 18px rgba(20, 24, 48, .14);
+}
+
+html[data-theme="dark"] {
+  /* ---------- 暗色板（Fungi dark：粉 → 青） ---------- */
+  color-scheme: dark;
+  --bg: #12141c;
+  --surface: #1b1e29;
+  --surface-2: #22252f;
+  --surface-3: #272b38;
+  --ink: #e6e8f2;
+  --ink-2: #a6acc4;
+  --ink-3: #7b82a0;
+  --ink-4: #5c6382;
+  --placeholder: #666d8c;
+  --line: #2a2e3e;
+  --line-soft: #242836;
+  --line-strong: #363b4e;
+  --accent: #2dd4bf;
+  --accent-strong: #4be0cd;
+  --accent-deep: #99f6e4;
+  --accent-soft: rgba(45, 212, 191, .12);
+  --accent-soft-2: rgba(45, 212, 191, .22);
+  --accent-glow: rgba(45, 212, 191, .30);
+  --accent-glow-2: rgba(45, 212, 191, .60);
+  --accent-line: rgba(45, 212, 191, .42);
+  --on-accent: #08131a;
+  --success: #4ade80;
+  --success-bg: rgba(74, 222, 128, .10);
+  --danger: #f87171;
+  --danger-strong: #fca5a5;
+  --danger-bg: rgba(248, 113, 113, .10);
+  --danger-bg-2: rgba(248, 113, 113, .18);
+  --danger-line: rgba(248, 113, 113, .30);
+  --danger-line-2: rgba(248, 113, 113, .50);
+  --warn: #fbbf24;
+  --warn-bg: rgba(251, 191, 36, .10);
+
+  --label: #6e7695;
+  --code-bg: #232733;
+  --row-hover: #22252f;
+  --fav-row: #2b2413;
+  --fav-row-hover: #332b16;
+  --ghost: #272b38;
+  --ghost-hover: #303646;
+  --seg-bg: #22252f;
+  --seg-on: #2e3341;
+  --seg-ink: #a6acc4;
+  --switch-off: #363b4e;
+  --knob: #e6e8f2;
+  --knob-shadow: 0 1px 3px rgba(0, 0, 0, .55);
+  --nav-on-bg: #2dd4bf;
+  --nav-on-ink: #08131a;
+  --folder: #3e6f69;
+  --info: #8fa2ff;
+  --info-bg: #232a4a;
+  --pending: #c4a6ff;
+  --pending-bg: #2a2140;
+  --scrim: rgba(4, 6, 12, .60);
+  --btn-danger: #e2556e;
+  --btn-danger-hover: #ee6e84;
+  --on-btn-danger: #14060a;
+  --toast-bg: #262a3a;
+  --toast-ink: #f4f6ff;
+  --toast-sub: #c2c8dd;
+  --toast-fail: #fca5a5;
+  --scroll-thumb: #363b4e;
+  --log-bg: #0c0f18;
+  --log-ink: #a8e6c0;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .45), 0 10px 26px rgba(0, 0, 0, .45);
+  --shadow-2: 0 2px 8px rgba(0, 0, 0, .50), 0 26px 64px rgba(0, 0, 0, .60);
+  --shadow-pop: 0 18px 44px rgba(0, 0, 0, .55);
+  --shadow-shot: 0 2px 10px rgba(0, 0, 0, .50);
+  --shadow-panel: -8px 0 34px rgba(0, 0, 0, .55);
+  --shadow-jump: 0 6px 18px rgba(0, 0, 0, .50);
+}
+
+/* 换主题只过渡颜色，别让布局跟着抖（尺寸/位移各自有过渡，别被这条吃掉） */
+html.theme-tween,
+html.theme-tween * {
+  transition: background-color .22s cubic-bezier(.22, 1, .36, 1),
+              border-color .22s cubic-bezier(.22, 1, .36, 1),
+              color .22s cubic-bezier(.22, 1, .36, 1),
+              box-shadow .22s cubic-bezier(.22, 1, .36, 1) !important;
+}

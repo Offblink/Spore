@@ -5,14 +5,11 @@
     <title>Spore · 搜题记录</title>
     <!-- KaTeX：md.js 的公式渲染产物（.katex）吃这份样式，字体相对本 CSS 解析 -->
     <link rel="stylesheet" href="src/lib/katex/katex.min.css" />
+    <!-- 令牌 + 首帧上色：theme.js 必须同步跑（不许 defer），否则先白一下再变深 -->
+    <link rel="stylesheet" href="src/lib/theme.css" />
+    <script src="src/lib/theme.js"></script>
     <style>
       :root {
-        --accent: #ec4899;
-        --accent2: #db2777;
-        --text: #1a1d2e;
-        --muted: #7c819c;
-        --border: #e6e8f2;
-        --bg: #f7f8fc;
         --side: 280px;
       }
       * { box-sizing: border-box }
@@ -20,7 +17,7 @@
       body {
         margin: 0;
         background: var(--bg);
-        color: var(--text);
+        color: var(--ink);
         font: 14px/1.65 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
       }
       #app-shell { display: flex; height: 100vh; overflow: hidden }
@@ -28,40 +25,40 @@
       /* ---- 左：会话列表（可伸缩，收起时右侧主区自动变宽） ---- */
       #sidebar {
         width: var(--side); min-width: var(--side); height: 100vh;
-        background: #fff; border-right: 1px solid var(--border);
+        background: var(--surface); border-right: 1px solid var(--line);
         display: flex; flex-direction: column; overflow: hidden;
         transition: margin-left 0.35s cubic-bezier(0.16, 1, 0.3, 1);
       }
       #sidebar.collapsed { margin-left: calc(-1 * var(--side)); box-shadow: none }
-      .sb-head { flex: none; padding: 14px 12px 10px; border-bottom: 1px solid var(--border) }
-      .seg { display: flex; gap: 4px; background: #f2f4fb; border-radius: 10px; padding: 3px }
+      .sb-head { flex: none; padding: 14px 12px 10px; border-bottom: 1px solid var(--line) }
+      .seg { display: flex; gap: 4px; background: var(--seg-bg); border-radius: 10px; padding: 3px }
       .seg-b {
         flex: 1; border: 0; background: transparent; border-radius: 8px; padding: 6px 0;
-        font: 600 13px inherit; color: #6b7191; cursor: pointer; transition: background 0.15s, color 0.15s;
+        font: 600 13px inherit; color: var(--seg-ink); cursor: pointer; transition: background 0.15s, color 0.15s;
       }
-      .seg-b:hover { color: var(--text) }
-      .seg-b.on { background: #fff; color: var(--text); box-shadow: 0 1px 4px rgba(20, 24, 48, 0.1) }
+      .seg-b:hover { color: var(--ink) }
+      .seg-b.on { background: var(--seg-on); color: var(--ink); box-shadow: 0 1px 4px var(--shadow-shot) }
       /* ---- head 下沿两枚并排：新建科目 / 批量选择（多选模式的唯一入口） ---- */
       .sb-acts { display: flex; gap: 6px; margin-top: 8px }
       #newSub, #selBtn {
         flex: 1; min-width: 0; padding: 7px 0;
-        border: 1px dashed #d9dcec; border-radius: 10px; background: #fbfcff;
-        color: #6b7191; font: 600 13px/1.4 inherit; cursor: pointer;
+        border: 1px dashed var(--line-strong); border-radius: 10px; background: var(--surface-2);
+        color: var(--seg-ink); font: 600 13px/1.4 inherit; cursor: pointer;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         transition: background 0.15s, color 0.15s, border-color 0.15s;
       }
-      #newSub:hover, #selBtn:hover { background: #fff0f7; border-color: var(--accent); color: var(--accent2) }
+      #newSub:hover, #selBtn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong) }
       /* 模式里按钮自己换文案与配色（点它退出），排在 hover 之后才压得住 */
       #selBtn.on, #selBtn.on:hover {
-        background: var(--accent); border: 1px solid var(--accent); color: #fff;
+        background: var(--accent); border: 1px solid var(--accent); color: var(--on-accent);
       }
       #list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px }
       .row {
         position: relative; display: flex; align-items: center; gap: 10px;
         padding: 9px 10px; border-radius: 12px; cursor: pointer; transition: background 0.12s;
       }
-      .row:hover { background: #f5f7fd }
-      .row.active { background: #fff0f7 }
+      .row:hover { background: var(--row-hover) }
+      .row.active { background: var(--accent-soft) }
       .row.active::before {
         content: ''; position: absolute; left: 0; top: 7px; bottom: 7px;
         width: 3px; border-radius: 99px; background: var(--accent);
@@ -69,67 +66,67 @@
       .row .f {
         flex: none; border: 0; background: transparent; cursor: pointer;
         font-size: 15px; line-height: 1; padding: 2px 0;
-        color: #b3b8cd; opacity: 0;
+        color: var(--ink-4); opacity: 0;
         transition: opacity 0.15s, color 0.15s, transform 0.15s;
       }
       .row:hover .f { opacity: 0.6 }
       .row.fav .f { opacity: 1; color: var(--accent) }
       .row .f:hover { opacity: 1; transform: scale(1.18) }
-      .row.fav .f:hover { color: var(--accent2) }
+      .row.fav .f:hover { color: var(--accent-strong) }
       .row .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px }
       .row .t {
-        min-width: 0; font-size: 14px; color: #2b2f4a;
+        min-width: 0; font-size: 14px; color: var(--ink);
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
-      .row.active .t { color: #c2185b; font-weight: 600 }
-      .row .ts { font-size: 11.5px; color: #a3a8c2 }
+      .row.active .t { color: var(--accent-deep); font-weight: 600 }
+      .row .ts { font-size: 11.5px; color: var(--ink-4) }
       .row .d {
         flex: none; width: 8px; height: 8px; border-radius: 50%;
-        background: var(--accent); box-shadow: 0 0 6px rgba(236, 72, 153, 0.6); display: none;
+        background: var(--accent); box-shadow: 0 0 6px var(--accent-glow-2); display: none;
       }
       .row.unread .d { display: block }
-      .empty { padding: 44px 16px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.9 }
+      .empty { padding: 44px 16px; text-align: center; color: var(--ink-3); font-size: 13px; line-height: 1.9 }
 
       /* ---- 科目（目录形态）：置顶一行，点击展开/收回，会话可拖进来 ---- */
       .sub {
         position: relative; display: flex; align-items: center; gap: 8px;
         padding: 9px 10px; margin-bottom: 5px; border-radius: 12px; cursor: pointer;
-        background: #f5f7fd; border: 1px solid #edf0f8; transition: background 0.12s, border-color 0.12s;
+        background: var(--surface-2); border: 1px solid var(--line-soft); transition: background 0.12s, border-color 0.12s;
       }
-      .sub:hover { background: #eef2fb }
-      .sub.dz { border-color: var(--accent); background: #fff0f7 }
-      .sub .sc { flex: none; width: 11px; font-size: 11px; color: #9aa0bb; transition: transform 0.15s }
+      .sub:hover { background: var(--surface-3) }
+      .sub.dz { border-color: var(--accent); background: var(--accent-soft) }
+      .sub .sc { flex: none; width: 11px; font-size: 11px; color: var(--label); transition: transform 0.15s }
       .sub.open .sc { transform: rotate(90deg) }
       .sub .fi {
         flex: none; position: relative; width: 15px; height: 11px;
-        border-radius: 2px 3px 3px 3px; background: #f9b6d5;
+        border-radius: 2px 3px 3px 3px; background: var(--folder);
       }
       .sub .fi::before {
         content: ''; position: absolute; top: -3px; left: 0; width: 7px; height: 3px;
-        border-radius: 2px 2px 0 0; background: #f9b6d5;
+        border-radius: 2px 2px 0 0; background: var(--folder);
       }
       .sub .sn {
-        flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: #40455f;
+        flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--ink-2);
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       .sub .cn {
-        flex: none; font-size: 11px; color: #a3a8c2; background: #fff;
-        border: 1px solid #e9ecf6; border-radius: 99px; padding: 0 6px;
+        flex: none; font-size: 11px; color: var(--ink-4); background: var(--surface);
+        border: 1px solid var(--line-soft); border-radius: 99px; padding: 0 6px;
       }
       .sub .sr, .sub .sx {
         flex: none; border: 0; background: transparent; cursor: pointer; opacity: 0;
-        font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 7px; color: #7b81a0;
+        font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 7px; color: var(--ink-3);
         transition: opacity 0.15s, background 0.15s, color 0.15s;
       }
       .sub:hover .sr, .sub:hover .sx { opacity: 1 }
-      .sub .sr:hover { background: #eef1fa; color: var(--accent) }
-      .sub .sx:hover { background: #fdecef; color: #d02747 }
-      .subempty { padding: 6px 10px 10px 32px; font-size: 12.5px; color: #a3a8c2 }
+      .sub .sr:hover { background: var(--surface-3); color: var(--accent) }
+      .sub .sx:hover { background: var(--danger-bg); color: var(--danger-strong) }
+      .subempty { padding: 6px 10px 10px 32px; font-size: 12.5px; color: var(--ink-4) }
       /* 科目里的会话：缩进 + 左侧引导线；拖动中的行淡出 */
       .row.in { margin-left: 22px }
       .row.in::after {
         content: ''; position: absolute; left: -12px; top: 0; bottom: 0;
-        width: 1px; background: #eef0f8;
+        width: 1px; background: var(--line-soft);
       }
       .row.drag { opacity: 0.4 }
 
@@ -137,26 +134,26 @@
       #main { flex: 1; min-width: 0; height: 100vh; display: flex; flex-direction: column }
       .topbar {
         flex: none; height: 54px; display: flex; align-items: center; gap: 10px;
-        padding: 0 16px; background: #fff; border-bottom: 1px solid var(--border);
+        padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--line);
       }
       #collapse {
-        border: 0; background: transparent; color: var(--muted);
+        border: 0; background: transparent; color: var(--ink-3);
         font: 600 18px/1 'Segoe UI', system-ui, sans-serif; cursor: pointer;
         width: 26px; padding: 4px 0; border-radius: 8px; text-align: center;
       }
-      #collapse:hover { background: #f2f4fb; color: var(--text) }
+      #collapse:hover { background: var(--surface-3); color: var(--ink) }
       #rTitle {
         flex: 1; min-width: 0; font-size: 15px; font-weight: 600;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       #rFav {
-        flex: none; border: 0; background: transparent; color: #b3b8cd;
+        flex: none; border: 0; background: transparent; color: var(--ink-4);
         font-size: 17px; cursor: pointer; padding: 2px 6px;
         transition: color 0.15s, transform 0.15s;
       }
-      #rFav:hover { transform: scale(1.12); color: #8d93ad }
+      #rFav:hover { transform: scale(1.12); color: var(--ink-3) }
       #rFav.on { color: var(--accent) }
-      #rFav.on:hover { color: var(--accent2) }
+      #rFav.on:hover { color: var(--accent-strong) }
       #history { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 0 46px }
       .hist-wrap { max-width: 860px; margin: 0 auto; padding: 0 26px; display: flex; flex-direction: column; gap: 24px }
 
@@ -165,11 +162,11 @@
       .msg.user { display: flex; flex-direction: column; gap: 6px }
       .msg.user .shot {
         align-self: flex-start; max-width: 60%; border-radius: 12px;
-        border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(20, 24, 48, 0.1); display: block;
+        border: 1px solid var(--line); box-shadow: var(--shadow-shot); display: block;
       }
-      .msg.user .shot:not([src]) { min-width: 180px; min-height: 56px; background: #f2f4fb }
+      .msg.user .shot:not([src]) { min-width: 180px; min-height: 56px; background: var(--surface-3) }
       .msg.user .utext {
-        align-self: flex-start; font-size: 14.5px; color: #4a4f6b; background: #f2f4fb;
+        align-self: flex-start; font-size: 14.5px; color: var(--ink-2); background: var(--surface-3);
         border-radius: 10px 10px 10px 3px; padding: 7px 11px; white-space: pre-wrap;
       }
       .msg.bot { position: relative; padding-left: 14px }
@@ -177,47 +174,47 @@
         content: ''; position: absolute; left: 0; top: 3px; bottom: 3px;
         width: 3px; border-radius: 99px; background: var(--accent);
       }
-      .label { font-size: 11.5px; letter-spacing: 0.14em; color: #9aa0bb; text-transform: uppercase; margin-bottom: 3px }
-      .ans { font-size: 17.5px; font-weight: 650; color: #14172a; white-space: pre-wrap }
-      .why { color: #4a4f6b; font-size: 15px; white-space: pre-wrap; margin-top: 3px }
-      .chat { color: #14172a; white-space: pre-wrap }
+      .label { font-size: 11.5px; letter-spacing: 0.14em; color: var(--label); text-transform: uppercase; margin-bottom: 3px }
+      .ans { font-size: 17.5px; font-weight: 650; color: var(--ink); white-space: pre-wrap }
+      .why { color: var(--ink-2); font-size: 15px; white-space: pre-wrap; margin-top: 3px }
+      .chat { color: var(--ink); white-space: pre-wrap }
       .tools { display: flex; flex-direction: column; gap: 4px; margin-top: 6px }
       .tool {
-        font-size: 13px; color: #7b81a0; background: #f6f7fc; border-radius: 7px; padding: 3px 8px;
+        font-size: 13px; color: var(--ink-3); background: var(--surface-2); border-radius: 7px; padding: 3px 8px;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       .tool::before { content: '⌕ '; color: var(--accent) }
-      .verify { margin-top: 9px; border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; background: #fbfcff }
-      .vhead { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9aa0bb; letter-spacing: 0.08em }
+      .verify { margin-top: 9px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: var(--surface-2) }
+      .vhead { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--label); letter-spacing: 0.08em }
       .chip { border-radius: 999px; padding: 1px 8px; font-size: 11.5px; letter-spacing: 0.04em }
-      .chip.ok { background: #e7f8ef; color: #0f9d58 }
-      .chip.fix { background: #ffeced; color: #d02747 }
-      .chip.skip { background: #f1f2f8; color: #7b81a0 }
-      .vnote { font-size: 15px; color: #3d4260; white-space: pre-wrap; margin-top: 4px }
+      .chip.ok { background: var(--success-bg); color: var(--success) }
+      .chip.fix { background: var(--danger-bg); color: var(--danger-strong) }
+      .chip.skip { background: var(--surface-3); color: var(--ink-3) }
+      .vnote { font-size: 15px; color: var(--ink-2); white-space: pre-wrap; margin-top: 4px }
       .think {
-        margin: 0 0 7px; border-left: 2px solid #e9eaf4; padding: 2px 0 3px 10px;
-        font-size: 13px; color: #7b81a0;
+        margin: 0 0 7px; border-left: 2px solid var(--line); padding: 2px 0 3px 10px;
+        font-size: 13px; color: var(--ink-3);
       }
-      .think summary { cursor: pointer; font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase; color: #9aa0bb }
+      .think summary { cursor: pointer; font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--label) }
       .think-b { white-space: pre-wrap; margin-top: 5px; max-height: 300px; overflow-y: auto }
       .err {
-        margin-top: 8px; background: #fff1f2; border: 1px solid #f7d7dc; color: #c81e45;
+        margin-top: 8px; background: var(--danger-bg); border: 1px solid var(--danger-line); color: var(--danger-strong);
         border-radius: 9px; padding: 7px 10px; font-size: 13.5px;
       }
-      .msg code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 14px; background: #f4f6fd; border: 1px solid #eef0f8; border-radius: 5px; padding: 0 4px }
-      .msg a { color: #c2185b; text-decoration: none; border-bottom: 1px solid #f7c8da }
-      .msg strong { font-weight: 650; color: #14172a }
+      .msg code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 14px; background: var(--code-bg); border: 1px solid var(--line-soft); border-radius: 5px; padding: 0 4px }
+      .msg a { color: var(--accent-deep); text-decoration: none; border-bottom: 1px solid var(--accent-line) }
+      .msg strong { font-weight: 650; color: var(--ink) }
       /* md 行内新增：斜体与图片（图片按块级落地、限宽不溢屏；.shot 是用户截图，走 .msg.user 那条规则） */
       .msg em { font-style: italic }
       .msg img {
         display: block; max-width: 100%; height: auto;
-        margin: 6px 0; border-radius: 6px; border: 1px solid var(--border);
+        margin: 6px 0; border-radius: 6px; border: 1px solid var(--line);
       }
       .katex-display { overflow-x: auto; overflow-y: hidden; margin: 0.5em 0 }
 
       /* ---- md 行结构（md.js 产出：标题/表格/列表/分隔线；与抽屉 shadow 内同一套口径） ---- */
       .msg h1, .msg h2, .msg h3, .msg h4, .msg h5, .msg h6 {
-        margin: 10px 0 6px; font-weight: 700; color: var(--text); line-height: 1.45;
+        margin: 10px 0 6px; font-weight: 700; color: var(--ink); line-height: 1.45;
       }
       .msg h1 { font-size: 1.3em }
       .msg h2 { font-size: 1.2em }
@@ -229,20 +226,20 @@
       .msg .tablewrap > table { margin: 0; width: auto; min-width: 100% }
       .msg table {
         border-collapse: collapse; width: 100%; margin: 0;
-        font-size: 14px; font-weight: 400; border: 1px solid var(--border);
+        font-size: 14px; font-weight: 400; border: 1px solid var(--line);
       }
       .msg th, .msg td {
-        border: 1px solid var(--border); padding: 5px 9px;
+        border: 1px solid var(--line); padding: 5px 9px;
         text-align: left; overflow-wrap: break-word;
       }
-      .msg th { background: #f2f4fb; color: var(--text); font-weight: 650 }
-      .msg td { color: #4a4f6b }
+      .msg th { background: var(--surface-3); color: var(--ink); font-weight: 650 }
+      .msg td { color: var(--ink-2) }
       .msg ul { margin: 6px 0; padding-left: 1.4em }
       .msg li { margin: 2px 0 }
-      .msg hr { border: 0; border-top: 1px solid var(--border); margin: 9px 0 }
+      .msg hr { border: 0; border-top: 1px solid var(--line); margin: 9px 0 }
       .msg blockquote {
-        margin: 7px 0; padding: 3px 10px 3px 11px; border-left: 3px solid var(--border);
-        border-radius: 0 6px 6px 0; background: #f2f4fb; color: #4a4f6b;
+        margin: 7px 0; padding: 3px 10px 3px 11px; border-left: 3px solid var(--line);
+        border-radius: 0 6px 6px 0; background: var(--surface-3); color: var(--ink-2);
       }
       .msg blockquote blockquote { margin: 4px 0 2px; padding-left: 9px; border-left-width: 2px }
       /* 有序列表与围栏代码（md.js：数字点号与三连反引号顶格起块） */
@@ -250,127 +247,127 @@
       .msg ol li { margin: 2px 0 }
       .msg pre {
         margin: 7px 0; padding: 8px 10px; overflow-x: auto;
-        background: #f6f7fb; border: 1px solid var(--border); border-radius: 6px;
+        background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
       }
       .msg pre code {
         font-family: 'Cascadia Code', Consolas, monospace; font-size: 13px;
-        color: #4a4f6b; background: none; border: 0; padding: 0; white-space: pre;
+        color: var(--ink-2); background: none; border: 0; padding: 0; white-space: pre;
       }
 
       /* ---- 行内操作（重命名 / 删除）：从抽屉复制过来的同一套交互 ---- */
       .row .r, .row .x {
         flex: none; border: 0; background: transparent; cursor: pointer; opacity: 0;
-        font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 7px; color: #7b81a0;
+        font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 7px; color: var(--ink-3);
         transition: opacity 0.15s, background 0.15s, color 0.15s;
       }
       .row:hover .r, .row:hover .x { opacity: 1 }
-      .row .r:hover { background: #eef1fa; color: var(--accent) }
-      .row .x:hover { background: #fdecef; color: #d02747 }
+      .row .r:hover { background: var(--info-bg); color: var(--info) }
+      .row .x:hover { background: var(--danger-bg); color: var(--danger-strong) }
 
       /* ---- 多选模式（侧栏 head 的「批量选择」按钮进、单选框涂抹，照移动端 record.js 移植）：
              单选框只在模式里现身、排在行首（与 ★/✎/×、红点 .d 共存）；
              涂抹只认单选框起笔（touch-action:none 在这儿把拖动让给涂抹） ---- */
       .row .ck {
         flex: none; display: none; width: 22px; height: 22px; border-radius: 50%;
-        border: 2px solid #d9dcec; background: #fff; color: transparent;
+        border: 2px solid var(--line-strong); background: var(--surface); color: transparent;
         align-items: center; justify-content: center; touch-action: none;
       }
       .row .ck svg { width: 12px; height: 12px; display: block }
       #list.sel .row .ck { display: flex }
-      #list.sel .row.on { background: #fff0f7 }
-      #list.sel .row.on .ck { background: var(--accent); border-color: var(--accent); color: #fff }
+      #list.sel .row.on { background: var(--accent-soft) }
+      #list.sel .row.on .ck { background: var(--accent); border-color: var(--accent); color: var(--on-accent) }
 
       /* ---- 批量底栏（多选模式贴侧栏底；隐藏常态，进模式才浮出；入口在 head 的 #selBtn） ---- */
       #batchbar {
         flex: none; display: flex; align-items: center; gap: 6px;
         padding: 10px 8px calc(10px + env(safe-area-inset-bottom));
-        background: #fff; border-top: 1px solid var(--border);
+        background: var(--surface); border-top: 1px solid var(--line);
       }
       #batchbar[hidden] { display: none }
-      .bcount { flex: none; white-space: nowrap; font-size: 12.5px; font-weight: 650; color: var(--muted) }
+      .bcount { flex: none; white-space: nowrap; font-size: 12.5px; font-weight: 650; color: var(--ink-3) }
       .bbtn {
         flex: 1; white-space: nowrap; border: 0; border-radius: 999px; padding: 8px 4px;
         cursor: pointer; font: 600 12.5px/1 inherit;
-        background: #fff0f7; color: var(--accent2); transition: background 0.15s;
+        background: var(--accent-soft); color: var(--accent-strong); transition: background 0.15s;
       }
-      .bbtn:hover { background: #ffe4f1 }
-      .bbtn.danger { background: #fdecef; color: #d02747 }
-      .bbtn.danger:hover { background: #fbdde3 }
+      .bbtn:hover { background: var(--accent-soft-2) }
+      .bbtn.danger { background: var(--danger-bg); color: var(--danger-strong) }
+      .bbtn.danger:hover { background: var(--danger-bg-2) }
       /* 全选：次级文字动作，不吃 flex——让三个批量键保持原宽 */
-      .bbtn.selall { flex: none; padding: 8px 6px; background: transparent; color: var(--accent2); font-weight: 650 }
-      .bbtn.selall:hover { background: #f1f3fb }
+      .bbtn.selall { flex: none; padding: 8px 6px; background: transparent; color: var(--accent-strong); font-weight: 650 }
+      .bbtn.selall:hover { background: var(--ghost) }
       .bbtn.selall:disabled { opacity: .45; cursor: default }
       .bbtn:disabled { opacity: 0.4; cursor: default; pointer-events: none }
 
       /* ---- 底部输入（与抽屉同款语义，Enter 发送） ---- */
       #composer {
         flex: none; display: flex; align-items: flex-end; gap: 9px;
-        padding: 12px 16px 14px; background: #fff; border-top: 1px solid var(--border);
+        padding: 12px 16px 14px; background: var(--surface); border-top: 1px solid var(--line);
       }
       #input {
-        flex: 1; resize: none; border: 1px solid #e2e5f0; background: #f8f9fd; border-radius: 12px;
-        padding: 9px 11px; font: 14.5px/1.55 inherit; color: var(--text);
+        flex: 1; resize: none; border: 1px solid var(--line); background: var(--surface-2); border-radius: 12px;
+        padding: 9px 11px; font: 14.5px/1.55 inherit; color: var(--ink);
         min-height: 44px; max-height: 156px; outline: none;
         transition: border-color 0.15s, background 0.15s;
       }
-      #input:focus { border-color: var(--accent); background: #fff }
-      #input::placeholder { color: #a8adc6 }
-      #input:disabled { background: #f1f3f8; color: #a3a8c2; cursor: default }
+      #input:focus { border-color: var(--accent); background: var(--surface) }
+      #input::placeholder { color: var(--placeholder) }
+      #input:disabled { background: var(--surface-3); color: var(--ink-4); cursor: default }
       #send {
         flex: none; width: 40px; height: 40px; border-radius: 12px; border: 0;
-        background: var(--accent); color: #fff; cursor: pointer; font-size: 16.5px; line-height: 1;
+        background: var(--accent); color: var(--on-accent); cursor: pointer; font-size: 16.5px; line-height: 1;
         transition: background 0.15s, transform 0.12s;
       }
-      #send:hover { background: var(--accent2); transform: translateY(-1px) }
-      #send:disabled { background: #e6e8f2; color: #a3a8c2; cursor: default; transform: none }
+      #send:hover { background: var(--accent-strong); transform: translateY(-1px) }
+      #send:disabled { background: var(--surface-3); color: var(--ink-4); cursor: default; transform: none }
       /* 生成中才有：出现即收起输入框那格的「回答生成中…」死局（抽屉顶栏 ■ 的整页版） */
       #stop {
         flex: none; height: 40px; padding: 0 14px; border-radius: 12px;
-        border: 1px solid #f3c2cc; background: #fff; color: #d02747;
+        border: 1px solid var(--danger-line); background: var(--surface); color: var(--danger-strong);
         cursor: pointer; font: 600 14px/1 inherit;
         transition: background 0.15s, border-color 0.15s;
       }
-      #stop:hover { background: #fff1f3; border-color: #e88a9c }
+      #stop:hover { background: var(--danger-bg); border-color: var(--danger-line-2) }
       #stop[hidden] { display: none }
 
       /* ---- 删除确认 / 重命名：整页居中模态（抽屉里那两个的复制品） ---- */
       #confirm, #rename, #subnew, #subpick {
         position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(16, 20, 40, 0.34); backdrop-filter: blur(2px); z-index: 40;
+        background: var(--scrim); backdrop-filter: blur(2px); z-index: 40;
       }
       #confirm.on, #rename.on, #subnew.on, #subpick.on { display: flex }
       #confirm .box, #rename .box, #subnew .box, #subpick .box {
-        width: 340px; background: #fff; border-radius: 16px; padding: 22px 20px 18px;
-        box-shadow: 0 26px 64px rgba(10, 12, 24, 0.34); text-align: center;
+        width: 340px; background: var(--surface); border-radius: 16px; padding: 22px 20px 18px;
+        box-shadow: var(--shadow-2); text-align: center;
         animation: pop 0.24s cubic-bezier(0.16, 1, 0.3, 1);
       }
       .ct { font-size: 16px; font-weight: 650; margin-bottom: 9px }
-      .cb { font-size: 14px; line-height: 1.7; color: #5a5f78; margin-bottom: 18px; word-break: break-all }
+      .cb { font-size: 14px; line-height: 1.7; color: var(--ink-2); margin-bottom: 18px; word-break: break-all }
       .acts { display: flex; gap: 10px }
       .acts button { flex: 1; padding: 11px 0; border: 0; border-radius: 11px; cursor: pointer; font: 600 14.5px/1 inherit }
-      .cno { background: #f1f3fb; color: #4a4f6b }
-      .cno:hover { background: #e8ebf7 }
-      .cyes { background: #ff3b5c; color: #fff }
-      .cyes:hover { background: #ef1f45 }
+      .cno { background: var(--ghost); color: var(--ink-2) }
+      .cno:hover { background: var(--ghost-hover) }
+      .cyes { background: var(--btn-danger); color: var(--on-btn-danger) }
+      .cyes:hover { background: var(--btn-danger-hover) }
       #renameInput, #subInput {
         width: 100%; box-sizing: border-box; margin: 2px 0 16px; padding: 10px 11px;
-        border: 1px solid var(--border); border-radius: 10px; background: #fafbfe; outline: none;
-        font: 13.5px/1.4 'Cascadia Code', Consolas, monospace; color: var(--text); text-align: center;
+        border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); outline: none;
+        font: 13.5px/1.4 'Cascadia Code', Consolas, monospace; color: var(--ink); text-align: center;
       }
-      #renameInput:focus, #subInput:focus { border-color: var(--accent); background: #fff }
+      #renameInput:focus, #subInput:focus { border-color: var(--accent); background: var(--surface) }
       /* 移入科目（多选批量）：科目清单占满 .box 中段，行样式与 #confirm 同一套模态 */
       #pickList {
         display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px;
         max-height: 46vh; overflow-y: auto; text-align: left;
       }
       .prow {
-        border: 1px solid var(--border); background: #fafbfe; border-radius: 10px;
-        padding: 9px 11px; font: 600 13.5px/1.4 inherit; color: #40455f;
+        border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px;
+        padding: 9px 11px; font: 600 13.5px/1.4 inherit; color: var(--ink-2);
         cursor: pointer; text-align: left; transition: background 0.15s, border-color 0.15s;
       }
-      .prow:hover { background: #fff0f7; border-color: var(--accent) }
-      .prow.on { background: #fff0f7; border-color: var(--accent); color: var(--accent2) }
-      .prow.none { color: #7b81a0 }
+      .prow:hover { background: var(--accent-soft); border-color: var(--accent) }
+      .prow.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong) }
+      .prow.none { color: var(--ink-3) }
 
       /* ---- toast：抽屉同款（右下角飞入、3.6s 自动收、点击打开会话），收藏两处入口共用 ---- */
       #toasts {
@@ -378,8 +375,8 @@
         align-items: flex-end; pointer-events: none; z-index: 60;
       }
       .toast {
-        pointer-events: auto; max-width: 340px; background: #14172a; color: #fff; border-radius: 12px;
-        padding: 11px 15px; box-shadow: 0 14px 34px rgba(10, 12, 24, 0.34); cursor: pointer;
+        pointer-events: auto; max-width: 340px; background: var(--toast-bg); color: var(--toast-ink); border-radius: 12px;
+        padding: 11px 15px; box-shadow: var(--shadow-2); cursor: pointer;
         transform: translateX(calc(100% + 40px)); opacity: 0;
         transition: transform 0.36s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.36s;
       }
@@ -389,12 +386,12 @@
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       .toast .tb {
-        font-size: 13.5px; color: #c8cbdd; line-height: 1.5;
+        font-size: 13.5px; color: var(--toast-sub); line-height: 1.5;
         display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
       }
 
       ::-webkit-scrollbar { width: 9px; height: 9px }
-      ::-webkit-scrollbar-thumb { background: #dfe2ee; border-radius: 99px }
+      ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 99px }
       ::-webkit-scrollbar-thumb:hover { background: var(--accent) }
       ::-webkit-scrollbar-track { background: transparent }
       @media (prefers-reduced-motion: reduce) {

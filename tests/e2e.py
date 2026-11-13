@@ -293,6 +293,9 @@ def main():
                         const k = 'spore.settings';
                         const cur = (await chrome.storage.local.get(k))[k] || {};
                         cur.apiKey = key;
+                        // 主题钉死浅色：下面的品牌粉/底色断言都是浅色板的值；
+                        // 外观页自己的浅↔深用例在设置页那一段里显式切一遍再切回。
+                        cur.theme = 'light';
                         await chrome.storage.local.set({ [k]: cur });
                         return true;
                     }""",
@@ -1182,7 +1185,7 @@ def main():
                 )
 
                 # 分页：左边索引，右边一次只显示一页
-                for name in ("model", "mirror", "keys", "log"):
+                for name in ("theme", "model", "mirror", "keys", "log"):
                     opt.click(f'.idx a[data-sec="{name}"]')
                     opt.wait_for_timeout(120)
                     vis = opt.evaluate(
@@ -1191,6 +1194,35 @@ def main():
                               .map((el) => el.dataset.sec)"""
                     )
                     check(f"分页索引「{name}」只显示该页", vis == [name], str(vis))
+
+                # 外观：三档主题（深色 → 立即生效并落库 → 抽屉跨上下文跟随 → 切回浅色）
+                opt.click('.idx a[data-sec="theme"]')
+                opt.wait_for_timeout(120)
+                opt.click('#themeSeg .seg[data-theme-mode="dark"]')
+                opt.wait_for_timeout(280)
+                dark_theme = opt.get_attribute("html", "data-theme")
+                dark_bg = opt.evaluate("() => getComputedStyle(document.body).backgroundColor")
+                check(
+                    "设置页切深色：data-theme=dark + 底色 #12141C",
+                    dark_theme == "dark" and dark_bg == "rgb(18, 20, 28)",
+                    f"{dark_theme} {dark_bg}",
+                )
+                drawer_dark = page.eval_on_selector("spore-drawer", "h => h.getAttribute('data-theme')")
+                check("抽屉跨上下文跟随深色", drawer_dark == "dark", str(drawer_dark))
+                dark_accent = opt.evaluate(
+                    "() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()"
+                )
+                check("深色 accent = Fungi 青 #2dd4bf", dark_accent == "#2dd4bf", dark_accent)
+                opt.click('#themeSeg .seg[data-theme-mode="light"]')
+                opt.wait_for_timeout(280)
+                light_bg = opt.evaluate("() => getComputedStyle(document.body).backgroundColor")
+                check(
+                    "切回浅色：底色 #F2F4FA",
+                    opt.get_attribute("html", "data-theme") == "light" and light_bg == "rgb(242, 244, 250)",
+                    light_bg,
+                )
+                drawer_light = page.eval_on_selector("spore-drawer", "h => h.getAttribute('data-theme')")
+                check("抽屉跨上下文跟随浅色", drawer_light == "light", str(drawer_light))
 
                 opt.click('.idx a[data-sec="mirror"]')
                 opt.wait_for_timeout(150)
@@ -1286,7 +1318,7 @@ def main():
                 gap_h = opt.evaluate("() => (document.querySelector('.idx .gap') || {}).offsetHeight || 0")
                 grp = opt.evaluate("() => (document.querySelector('.idx .grp') || {}).textContent || ''")
                 check(
-                    "搜题记录与下面四张卡之间留了间距、且归在「应用设置」分组下",
+                    "搜题记录与下面六张卡之间留了间距、且归在「应用设置」分组下",
                     gap_h >= 10 and grp.strip() == "应用设置",
                     f"gap={gap_h} grp={grp!r}",
                 )

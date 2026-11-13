@@ -174,3 +174,22 @@ Fungi 是「贴底就跟随，上滑就锁定」。本项目按需求改成：**
 | 会话名停在占位 | 默认标题不再用占位串，直接用 `stampTitle()`（日期+时分）；题号/大意起名只是**升级**，即使全失败也不会露出占位 |
 | 系统通知静默失败 | `iconUrl` 必须绝对 URL（见上表）；`notifications.create` 的 Promise 失败也要手动 `.catch` 落日志 |
 | **检索全挂、门禁却全绿**（上轮 e2e 实测 6 次检索全 `ERROR: search failed (empty results)`，出答案照过） | 两层原因：① 断言只数工具 chip（chip 在 dispatch *之前* 推出），从没看检索结果；② 只有一条 bing 腿，而 bing 在该出口被节流成「没有结果」页。修法：同步 Fungi §71 的三腿 + 三道闸、加「检索代理」开关（填了 ddg 打头），离线用 `tests/search.test.mjs` 钉死三道闸，e2e 再断言返回只有三态（`1.` / `(no results` / `ERROR: Search failed`） |
+
+## 九、明暗双板（2026-11，与移动端同源）
+
+用户要求「参考 Spore-Mobile 给 MV3 也加上主题切换 + 深色主题，图标一起改」。移动端那轮已经把
+令牌定死（`spore.css` 明/暗两块、`values-night/colors.xml`、原生 `AppCompatDelegate` 三档），
+扩展端照抄语义、不另立一套：
+
+| 事项 | 落地 |
+|---|---|
+| 档位 | `spore.settings.theme` = `system`（默认）/ `light` / `dark`；解析后的明暗落到 `<html data-theme>`（抽屉落 host 同名属性） |
+| 令牌 | 新增 `src/lib/theme.css`：`:root` 明色（底 `#F2F4FA`、面 `#FFFFFF`、accent `#EC4899`）+ `html[data-theme="dark"]` 暗色（底 `#12141C`、面 `#1B1E29`、accent `#2DD4BF`），与移动端逐值对齐；页面 CSS 一律 `var(--token)`，**零硬编码颜色**（设置页/审查页/抽屉三面都清过） |
+| 抽屉 | shadow 里 `:root` 匹配不到，令牌挂 `:host` / `:host([data-theme="dark"])`（`all:initial` 不影响自定义属性）；开合与主题互不依赖，主题只改颜色 |
+| 首帧 | `theme.js` 在 `<head>` **同步**跑：先读 `localStorage['spore.theme.resolved']` 上色（不闪白），再异步读 storage 校准；`storage.onChanged` + `matchMedia('(prefers-color-scheme: dark)')` 负责跨标签页与系统热跟随；切换瞬间加 `.theme-tween` 只过渡颜色 0.22s |
+| 框选层 | `overlay.js` 开框时读一次档位，强调色/标签底色跟着换（粉 ↔ 青）；只活几秒，不做实时跟随 |
+| 图标 | 按新设计重出 `icons/16/32/48/128.png`：深空底（`#1C2131→#080B12`）+ 青绿孢子辉光 + 粉色孢子球（r=0.25 边长、球心在 0.462 高度）+ 两只白圆眼（71×99 @512，关于球心对称）。几何是对着移动端 `docs/readme/icon.png` **量出来**的（`Android` 向量里那对眼写偏了 7 个单位，别照抄） |
+
+踩坑：批量把旧硬编码色换 `var()` 时，`var(...)` 替换也会命中令牌定义本身（`--accent:#ec4899`
+→ `--accent:var(--accent)`，自引用后整块令牌失效）。正确做法是先换长色值（`#fff0f7` 之类）
+再换 `#fff`，并在改完 grep 一遍 `--x:var(--x)`。

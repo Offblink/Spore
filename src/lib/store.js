@@ -40,6 +40,9 @@ const K_SESS = 'spore.sess.';
 const K_IMG = 'spore.img.';
 
 export const DEFAULT_SETTINGS = {
+  // 主题档位：system（默认，跟系统）| light | dark。
+  // 解析后的明暗由 src/lib/theme.js 落到 <html data-theme>，令牌在 src/lib/theme.css。
+  theme: 'system',
   endpoint: 'https://api.deepseek.com/chat/completions',
   model: 'deepseek-v4-flash-vision-exp',
   apiKey: '', // 真实 key 不入库：设置页填写；e2e 从 tests/_run/e2e_key（gitignore）或 SPORE_E2E_KEY 读

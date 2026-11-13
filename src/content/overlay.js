@@ -63,6 +63,25 @@
 
     document.documentElement.appendChild(root);
 
+    // 强调色跟设置页的主题档位（浅色粉 #EC4899 / 深色青 #2DD4BF）：框选层只活几秒，
+    // 不做实时跟随，开框时读一次就够；读不到就按系统偏好。
+    const paintAccent = (dark) => {
+      box.style.borderColor = dark ? '#2dd4bf' : '#ec4899';
+      box.style.background = dark ? 'rgba(45,212,191,0.12)' : 'rgba(236,72,153,0.10)';
+      label.style.background = dark ? '#2dd4bf' : '#ec4899';
+      label.style.color = dark ? '#08131a' : '#fff';
+    };
+    chrome.storage.local
+      .get('spore.settings')
+      .then((got) => {
+        const mode = ((got['spore.settings'] || {}).theme) || 'system';
+        const dark = mode === 'dark' || (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) paintAccent(true);
+      })
+      .catch(() => {
+        /* 主题只是配色，读不到就用浅色 */
+      });
+
     /** 顶部提示条复用为警告条（红底），1.8s 后恢复默认文案 */
     let warnTimer = 0;
     const warn = (text) => {

@@ -240,7 +240,7 @@ setInterval(renderLog, 4000);
 
 
 // ---------------- 分页：左边索引，右边一次一页 ----------------
-const SECTIONS = ['model', 'mirror', 'keys', 'log'];
+const SECTIONS = ['theme', 'model', 'mirror', 'keys', 'log'];
 
 function showSec(name) {
   const pick = SECTIONS.includes(name) ? name : 'model';
@@ -264,6 +264,26 @@ document.querySelectorAll('.idx a[data-sec]').forEach((a) =>
   }),
 );
 showSec((location.hash || '').slice(1));
+
+// ---------------- 外观：三档主题 ----------------
+// 读写与跨页同步都在 src/lib/theme.js（它管首帧上色 + storage.onChanged），
+// 这里只画选中态：档位变（自己点、别的标签页改、系统切换）就重画一次。
+function paintThemeSeg() {
+  const mode = window.SporeTheme ? window.SporeTheme.mode() : 'system';
+  document.querySelectorAll('#themeSeg .seg').forEach((b) => {
+    b.classList.toggle('on', b.dataset.themeMode === mode);
+  });
+}
+
+document.querySelectorAll('#themeSeg .seg').forEach((b) =>
+  b.addEventListener('click', () => {
+    window.SporeTheme.set(b.dataset.themeMode).catch((e) => msg(String(e), 'bad'));
+    paintThemeSeg();
+  }),
+);
+window.SporeTheme?.subscribe(paintThemeSeg);
+window.SporeTheme?.ready.then(paintThemeSeg);
+paintThemeSeg();
 
 // ---------------- 搜题记录：索引第一项，点了**直接新开整页** ----------------
 // 用户定位：抽屉只是「插件的身份」，option 才是应用的控制中枢 —— 所以入口摆在索引最上面、
