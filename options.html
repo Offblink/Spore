@@ -81,6 +81,13 @@
       }
       #probe, .btn2 { background: var(--ghost); color: var(--ink-2) }
       #probe:hover, .btn2:hover { background: var(--ghost-hover) }
+      #cloudSync {
+        background: linear-gradient(160deg, var(--accent), var(--accent-strong));
+        color: var(--on-accent);
+      }
+      #cloudSync:disabled { opacity: 0.55; cursor: default }
+      #cloudState.ok { color: var(--success) }
+      #cloudState.bad { color: var(--danger-strong) }
       #dirState.ok { color: var(--success) }
       #dirState.bad { color: var(--danger-strong) }
       #msg { font-size: 12.5px; color: var(--ink-3); margin-top: 10px; min-height: 18px }
@@ -165,12 +172,13 @@
     <div class="shell">
       <nav class="idx">
         <div class="brand"><span>Spore</span> 孢子</div>
-        <p class="sub">搜题记录直通整页审查；下面五张卡是应用设置，左边选右边显示。</p>
+        <p class="sub">搜题记录直通整页审查；下面六张卡是应用设置，左边选右边显示。</p>
         <a href="review.html" data-jump="history">搜题记录</a>
         <div class="gap"></div>
         <div class="grp">应用设置</div>
         <a href="#theme" data-sec="theme" class="on">外观 <i class="dot"></i></a>
         <a href="#model" data-sec="model">模型 <i class="dot"></i></a>
+        <a href="#cloud" data-sec="cloud">服务器 <i class="dot"></i></a>
         <a href="#mirror" data-sec="mirror">磁盘镜像 <i class="dot"></i></a>
         <a href="#keys" data-sec="keys">快捷键 <i class="dot"></i></a>
         <a href="#log" data-sec="log">日志 <i class="dot"></i></a>
@@ -236,6 +244,32 @@
           <button id="probe">测试连接</button>
           <span id="msg"></span>
         </div>
+      </div>
+
+      <!-- ===== 服务器与同步：局域网 Spore-Cloud（地址 + 令牌，手动同步） ===== -->
+      <div class="card" data-sec="cloud">
+        <div class="sec-head">
+          <div>
+            <div class="sec-title">服务器与同步</div>
+            <div class="hint" style="margin-top: 3px">
+              填局域网里 Spore-Cloud 的地址（<code>192.168.1.5:19080</code>，末尾 <code>/api</code> 自动补）与令牌。
+              令牌只在后台存着，页面拿不到明文；同步是手动的，点「立即同步」才跑一轮。
+            </div>
+          </div>
+        </div>
+
+        <label for="cloudApi">服务器地址</label>
+        <input id="cloudApi" type="text" spellcheck="false" autocomplete="off" placeholder="192.168.1.5:19080" />
+
+        <label for="cloudToken">令牌</label>
+        <input id="cloudToken" type="password" spellcheck="false" autocomplete="off" placeholder="留空 = 保持已保存的令牌" />
+
+        <div class="row" style="margin-top: 18px">
+          <button id="cloudSave">保存并测试</button>
+          <button id="cloudSync" class="btn2">立即同步</button>
+          <button id="cloudClear" class="btn2">清除</button>
+        </div>
+        <div class="hint" id="cloudState">读取中…</div>
       </div>
 
       <!-- ===== 磁盘镜像：统一模块（总开关关闭时，下面整组隐藏） ===== -->

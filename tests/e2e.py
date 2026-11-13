@@ -236,6 +236,19 @@ def main():
             off_tail = ((off.stdout or "") + (off.stderr or "")).strip().replace("\n", " ")
             check(t_check, off.returncode == 0, off_tail[-180:])
 
+        # 云同步：假 Cloud（tests/mock_cloud.mjs）+ 真 Edge，跑一轮上行/下行/多图/墓碑
+        sync_e2e = subprocess.run(
+            [sys.executable, str(HERE / "e2e_sync.py")],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(REPO),
+            env={**os.environ, "PYTHONUTF8": "1"},
+        )
+        sync_tail = ((sync_e2e.stdout or "") + (sync_e2e.stderr or "")).strip().replace("\n", " ")
+        check("云同步：假 Cloud 端到端全过（tests/e2e_sync.py）", sync_e2e.returncode == 0, sync_tail[-180:])
+
         with sync_playwright() as p:
             # 无头跑，不在用户桌面上开窗口、不弹 --no-sandbox 横幅；
             # 新版 headless 支持扩展（Edge 154）。失败则回退有头。

@@ -200,6 +200,92 @@ load()
   .catch((e) => msg(String(e), 'bad'));
 
 
+// ---------------- 服务器与同步（地址 + 令牌；只手动触发） ----------------
+// 令牌不进页面：这里只收发状态帧（hasToken / 地址 / uid / 上次结果），写入与同步都走 SW 的 cloud op。
+function cloudSay(text, cls = '') {
+  const el = $('cloudState');
+  if (!el) return;
+  el.textContent = text;
+  el.className = `hint ${cls}`.trim();
+}
+
+async function cloudCall(payload) {
+  const res = await chrome.runtime.sendMessage({ type: 'cloud', ...payload }).catch(() => null);
+  if (!res) throw new Error('后台无响应（扩展可能正在更新）');
+  if (!res.ok) throw new Error(res.error || '后台返回失败');
+  return res.data;
+}
+
+function renderCloud(status) {
+  if (!status) return;
+  if (status.api) $('cloudApi').value = displayApi(status.api);
+  if ($('cloudSync')) $('cloudSync').disabled = !status.hasToken;
+  if (!status.hasToken) {
+    cloudSay('未配置：填地址与令牌 → 「保存并测试」');
+    return;
+  }
+  const tail = status.lastSyncMsg ? ` · ${status.lastSyncMsg}` : ' · 还没同步过';
+  cloudSay(`已连接 · ${displayApi(status.api)} · uid ${status.uid}${tail}`);
+}
+
+/** 回填用：去掉 /api 后缀与 http:// 前缀（用户填的是 host:port；https 保留，能看出在用加密） */
+function displayApi(api) {
+  return String(api || '')
+    .replace(/\/api$/, '')
+    .replace(/^http:\/\//, '');
+}
+
+$('cloudSave')?.addEventListener('click', async () => {
+  const api = $('cloudApi').value.trim();
+  const token = $('cloudToken').value.trim();
+  if (!api) return cloudSay('先填服务器地址（如 192.168.1.5:19080）', 'bad');
+  try {
+    cloudSay('连接中…');
+    const data = await cloudCall({ op: 'save', api, token });
+    $('cloudToken').value = '';
+    $('cloudApi').value = displayApi(data.status.api);
+    if ($('cloudSync')) $('cloudSync').disabled = false;
+    cloudSay(`已连接 · ${displayApi(data.status.api)} · uid ${data.status.uid}`, 'ok');
+  } catch (e) {
+    cloudSay(`连接失败：${e.message}`, 'bad');
+  }
+});
+
+$('cloudSync')?.addEventListener('click', async () => {
+  const btn = $('cloudSync');
+  if (!btn || btn.disabled) return;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '同步中…';
+  try {
+    const data = await cloudCall({ op: 'sync' });
+    renderCloud(data.status);
+    const r = data.result || {};
+    cloudSay(r.ok ? `同步完成：${r.message}` : `同步失败：${r.message}`, r.ok ? 'ok' : 'bad');
+  } catch (e) {
+    cloudSay(`同步失败：${e.message}`, 'bad');
+  } finally {
+    btn.textContent = label;
+    btn.disabled = false;
+  }
+});
+
+$('cloudClear')?.addEventListener('click', async () => {
+  try {
+    const data = await cloudCall({ op: 'clear' });
+    $('cloudApi').value = '';
+    $('cloudToken').value = '';
+    renderCloud(data.status);
+    cloudSay('已清除（本地删除记录保留，下次重新配置后会补推）');
+  } catch (e) {
+    cloudSay(`清除失败：${e.message}`, 'bad');
+  }
+});
+
+cloudCall({ op: 'status' })
+  .then((d) => renderCloud(d.status))
+  .catch(() => cloudSay('后台未就绪，稍后刷新页面重试', 'bad'));
+
 // ---------------- 日志（排错入口） ----------------
 const K_LOG = 'spore.log';
 
@@ -240,7 +326,7 @@ setInterval(renderLog, 4000);
 
 
 // ---------------- 分页：左边索引，右边一次一页 ----------------
-const SECTIONS = ['theme', 'model', 'mirror', 'keys', 'log'];
+const SECTIONS = ['theme', 'model', 'cloud', 'mirror', 'keys', 'log'];
 
 function showSec(name) {
   const pick = SECTIONS.includes(name) ? name : 'theme'; // 无 hash / 野 hash → 第一张卡（外观）

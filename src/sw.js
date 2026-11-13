@@ -2,6 +2,7 @@
 // 所有存储写入都在这里（单写者），抽屉只读 + 订阅 chrome.storage.onChanged；
 // 流式增量走 port（高频），存储按 1.2s 节流落盘。
 import * as store from './lib/store.js';
+import * as sync from './lib/sync.js';
 import { runTurn, runVerifyOnly, ensureNamed } from './lib/agent.js';
 import { searchPlan, setSearchProxy, toolWebSearch } from './lib/tools.js';
 
@@ -479,6 +480,8 @@ async function handleContent(msg, port) {
         const saved = await store.renameSubject(msg.sub, msg.name);
         store.logEvent(`subject rename → id=${msg.sub} "${saved || ''}"`);
       } else if (msg.op === 'delete') {
+        // 删除要在本地落账（墓碑），否则下一轮 pull 会把它复活
+        await sync.recordTombstone('category', msg.sub);
         await store.deleteSubject(msg.sub);
         store.logEvent(`subject delete → id=${msg.sub}`);
       }
@@ -487,6 +490,7 @@ async function handleContent(msg, port) {
 
     case 'delete':
       stopTurn(msg.sid);
+      await sync.recordTombstone('article', msg.sid);
       await store.deleteSession(msg.sid);
       broadcast({ type: 'session-deleted', sid: msg.sid });
       await updateBadge();
@@ -550,6 +554,31 @@ async function handleContent(msg, port) {
   }
 }
 
+// ------------------------------------------------------------------ 云同步
+
+/**
+ * 设置页与 e2e 的同步入口。令牌只在 SW 里读写，页面拿不到明文（status 只回 hasToken）。
+ * op: status | save | clear | sync
+ */
+async function handleCloud(msg) {
+  switch (msg.op) {
+    case 'status':
+      return { status: await sync.getStatus() };
+    case 'save':
+      await sync.setConfig({ api: msg.api, token: msg.token });
+      return { status: await sync.getStatus() };
+    case 'clear':
+      await sync.clearConfig();
+      return { status: await sync.getStatus() };
+    case 'sync': {
+      const result = await sync.run();
+      return { result, status: await sync.getStatus() };
+    }
+    default:
+      throw new Error(`未知 op：${msg.op}`);
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // 框选层回传（runtime 消息，因为它是后来注入的）
   if (msg?.type === 'spore:rect') {
@@ -561,6 +590,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     sendResponse({ ok: true });
     return false;
+  }
+  if (msg?.type === 'cloud') {
+    handleCloud(msg)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
+    return true;
   }
   handleContent(msg, null).then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ error: String(e) }));
   return true;
@@ -642,6 +677,14 @@ async function init() {
   if (dirty) await updateBadge();
   updateBadge().catch(() => {});
 
+  // 老科目补 created/updated（同步的 LWW 键；缺了第一次全量会漏推）
+  try {
+    const stamped = await store.migrateSubjects();
+    if (stamped) store.logEvent(`sweep科目: ${stamped} 个补时间戳`);
+  } catch (e) {
+    store.logEvent(`sweep科目失败: ${e && e.message}`);
+  }
+
   // 清扫老构建遗留标题：「解析中…」占位 → 本地兜底起名；
   // `MMDD-…` 日期前缀 → 去掉（日期已下放到列表行小字，标题含日期是不合法旧格式）
   try {
@@ -705,6 +748,20 @@ globalThis.__spore = {
     const s = await store.getSettings();
     setSearchProxy(s.proxy);
     return toolWebSearch(String(query ?? ''), undefined);
+  },
+  // 云同步（e2e 用）：配置、跑一轮、看状态。令牌只进 SW。
+  syncConfig: async (api, token) => {
+    await sync.setConfig({ api, token });
+    return sync.getStatus();
+  },
+  syncRun: () => sync.run(),
+  syncStatus: () => sync.getStatus(),
+  syncClear: () => sync.clearConfig(),
+  // e2e 用：SW 不能给自己发 runtime 消息，所以删除入口得直接走函数（墓碑 + 本地删）
+  syncDelete: async (sid) => {
+    await sync.recordTombstone('article', sid);
+    await store.deleteSession(sid);
+    return true;
   },
 };
 

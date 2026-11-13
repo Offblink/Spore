@@ -282,7 +282,7 @@ export async function saveSession(sess) {
 
 /** 收藏/取消收藏：只动索引的 fav 字段（列表置顶与星标都读它），不动会话正文 */
 export async function setFavorite(id, fav) {
-  await patchIndex(id, { fav: !!fav });
+  await touchSession(id, { fav: !!fav });
 }
 
 // ---------------------------------------------------------------- 科目（整页搜题记录的目录形态）
@@ -299,17 +299,46 @@ export async function createSubject(name) {
   const clean = String(name || '').trim().slice(0, 40);
   if (!clean) return null;
   const list = await listSubjects();
-  const sub = { id: `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, name: clean };
+  const now = Date.now();
+  // created/updated 是同步的 LWW 键（服务端 category 必填），新科目从这里开始计
+  const sub = {
+    id: `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    name: clean,
+    created: now,
+    updated: now,
+  };
   list.push(sub);
   await chrome.storage.local.set({ [K_SUBJ]: list });
   return sub;
+}
+
+/**
+ * 老科目没有 created/updated（同步上线前的数据）：补一次时间戳，幂等。
+ * 不补的话它们永远不满足 `updated > pushCursor`，第一次全量同步会漏掉这些科目。
+ */
+export async function migrateSubjects() {
+  const list = await listSubjects();
+  let changed = 0;
+  const now = Date.now();
+  for (const s of list) {
+    if (!s.created || !s.updated) {
+      s.created = s.created || now;
+      s.updated = s.updated || now;
+      changed++;
+    }
+  }
+  if (changed) await chrome.storage.local.set({ [K_SUBJ]: list });
+  return changed;
 }
 
 /** 删除科目：成员解除归属（会话一个都不删），再摘掉科目本身 */
 export async function deleteSubject(id) {
   const list = (await listSubjects()).filter((s) => s.id !== id);
   await chrome.storage.local.set({ [K_SUBJ]: list });
-  await setIndex((idx) => idx.map((e) => (e.sub === id ? { ...e, sub: null } : e)));
+  // 成员要 touch：解绑是一次真实改动，必须能被上行（否则其他端仍把它挂在这个科目里）
+  for (const e of await listSessions()) {
+    if (e.sub === id) await touchSession(e.id, { sub: null });
+  }
 }
 
 /** 重命名科目：只改名，不动成员 */
@@ -320,13 +349,67 @@ export async function renameSubject(id, name) {
   const hit = list.find((s) => s.id === id);
   if (!hit) return null;
   hit.name = clean;
+  hit.updated = Date.now();
   await chrome.storage.local.set({ [K_SUBJ]: list });
   return clean;
 }
 
-/** 会话归类：sub 为 null 就是移出科目。归属只写索引，不动会话正文。 */
+/** 会话归类：sub 为 null 就是移出科目。归属是同步字段，改动即 touch。 */
 export async function assignSubject(sid, sub) {
-  await patchIndex(sid, { sub: sub || null });
+  await touchSession(sid, { sub: sub || null });
+}
+
+/**
+ * 元数据改动（收藏/科目/改名）也要抬 `updated`：
+ * 服务端 LWW 只认 `updated`，不改时间戳的改动下一轮会被服务端旧行覆盖回来。
+ * （Mobile 的 `touched` 同义；正文流式落盘走 saveSession，它自己会抬。）
+ */
+export async function touchSession(id, patch = {}) {
+  const sess = await getSession(id);
+  if (!sess) return null;
+  Object.assign(sess, patch);
+  sess.updated = Date.now();
+  await chrome.storage.local.set({ [K_SESS + id]: sess });
+  await setIndex((idx) =>
+    idx.map((e) => (e.id === id ? { ...e, ...patch, updated: sess.updated } : e)),
+  );
+  return sess;
+}
+
+/** 下行套用：保留服务端 `updated`（那是 LWW 水位，不许被本地写回抬走） */
+export async function applyServerSession(sess) {
+  if (!sess?.id) return null;
+  titleOverrides.delete(sess.id);
+  await chrome.storage.local.set({ [K_SESS + sess.id]: sess });
+  const entry = {
+    id: sess.id,
+    title: sess.title || '新会话',
+    created: sess.created || sess.updated || Date.now(),
+    updated: sess.updated || 0,
+    count: (sess.messages || []).length,
+    status: sess.status || 'done',
+    unread: !!sess.unread,
+    fav: !!sess.fav,
+    sub: sess.sub || null,
+  };
+  await setIndex((idx) => {
+    const i = idx.findIndex((e) => e.id === sess.id);
+    if (i >= 0) return idx.map((e) => (e.id === sess.id ? entry : e));
+    return [entry, ...idx];
+  });
+  return sess;
+}
+
+/** 下行套用科目：有则替换（保位置），无则追加 */
+export async function applyServerSubject(sub) {
+  if (!sub?.id) return null;
+  const list = await listSubjects();
+  const i = list.findIndex((s) => s.id === sub.id);
+  const row = { id: sub.id, name: sub.name || '未命名科目', created: sub.created, updated: sub.updated };
+  if (i >= 0) list[i] = row;
+  else list.push(row);
+  await chrome.storage.local.set({ [K_SUBJ]: list });
+  return row;
 }
 
 /** 局部更新索引（状态/红点/标题），不动会话正文 —— 高频，避免整份重写 */

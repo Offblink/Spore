@@ -193,3 +193,24 @@ Fungi 是「贴底就跟随，上滑就锁定」。本项目按需求改成：**
 踩坑：批量把旧硬编码色换 `var()` 时，`var(...)` 替换也会命中令牌定义本身（`--accent:#ec4899`
 → `--accent:var(--accent)`，自引用后整块令牌失效）。正确做法是先换长色值（`#fff0f7` 之类）
 再换 `#fff`，并在改完 grep 一遍 `--x:var(--x)`。
+
+## 十、云同步（2026-11-13，可选）
+
+用户要求「参照移动端与 Spore-Cloud 的连接，但不要扫码，改成填 IP/端口 + 一个令牌；手动触发；三端混一个库」。
+
+| 事项 | 落地 |
+|---|---|
+| 认证 | **只有令牌**（`Authorization: Bearer`），不做登录表单、不存口令；`GET /users/me` 只做连通校验与取 `uid`——token 被改绑到别人时 `uid` 变化 → **双游标清零**（否则旧水位永久跳过新身份的存量行） |
+| 存储 | `spore.sync`（api/uid/游标/上次结果，无令牌）+ `spore.sync.token`（单独键）+ `spore.sync.tombs`（`{articles,categories}`）+ `spore.subjects` 补 `created/updated`（老数据由 SW 启动时补时间戳） |
+| 传输 | 全部走 service worker：Cloud 网关没有 CORS 配置；扩展页/SW 在 `host_permissions` 覆盖下不受同源限制，content script 里 fetch 会被按页面 origin 判 |
+| 语义 | 先上行（科目先于会话、行先于图）再下行；`nextCursor` 按服务端算法截断；LWW 严格大于；墓碑 `deleted=1` 双向传播；下行套用服务端行时同时抬 `pushCursor`（markClean），否则回声重推、上/下行永不归 0 |
+| 图片 | 服务端一篇只有一列 `attachment_path`。首图走它；**其余图用合成 articleId**（`<sid>-<下标>`）调同一个 `push-attachment`——服务端先落文件再 `UPDATE ... WHERE id=?`（影响 0 行）所以不动行、不抬时间戳；返回的相对路径写进消息的 `attPath`，另一端按它 `pull-attachment` 拉回（路径可预先确定，所以能让行先走） |
+| 跨端 | 上行写**超集**：Mobile 的扁平 `verifyRan/verifyVerdict/…` 与 `hasImage` 都带（Android 能显示核实块）；下行扁平/嵌套两种都读。Mobile 不认识 `attPath`，所以它只看到首图（行为不变） |
+| 触发 | 只手动（设置页「立即同步」）；不做定时/自动，SW 单飞 + 每块落游标，随时可中断重入 |
+
+踩坑：
+1. `saveSession()` 每次落盘都 `updated = Date.now()`（流式 1.2s 一次）→ 套用服务端行必须走 `applyServerSession()` 保服务端 `updated`；否则下一轮把回声当本地新改动重推。
+2. 收藏/改名/移科目这类元数据改动**必须抬 `updated`**（`touchSession`），否则服务端 LWW 会用旧行盖回来。
+3. 会话在途（answering/verifying/searching）时下行要**挡住游标**（hold 到行时间戳 - 1），下轮再解。
+4. 删除必须同时记墓碑（`sync.recordTombstone`），否则下一轮 pull 把删掉的会话复活。
+5. `article.id varchar(32)`：MV3 仍是秒级 `YYYYMMDD-HHMMSS`，跨设备同秒会撞号（服务端会把行迁籍给后推者）——已知风险，暂不改 id 格式。
