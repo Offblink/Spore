@@ -243,7 +243,7 @@ setInterval(renderLog, 4000);
 const SECTIONS = ['theme', 'model', 'mirror', 'keys', 'log'];
 
 function showSec(name) {
-  const pick = SECTIONS.includes(name) ? name : 'model';
+  const pick = SECTIONS.includes(name) ? name : 'theme'; // 无 hash / 野 hash → 第一张卡（外观）
   document.querySelectorAll('.card[data-sec]').forEach((el) => {
     el.hidden = el.dataset.sec !== pick;
   });
