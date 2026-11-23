@@ -7,6 +7,32 @@ const DB_NAME = 'spore-fs';
 const STORE = 'handles';
 const KEY_ROOT = 'root';
 
+/**
+ * 句柄操作必须限时：浏览器重启后 Chrome 把授权打回 prompt，而**在 service worker 里
+ * queryPermission() / getDirectoryHandle() 会永远不 settle**（实测这台机 Edge 154：
+ * 保存过的目录句柄从 IndexedDB 取回后，queryPermission 挂 5s+ 不返回）。
+ * 没有这道闸，captureFlow 的镜像步骤会把整个回合卡死在 startTurn 之前 ——
+ * 症状就是「新会话只有截图、agent 永远不回答」，日志停在 saveSession。
+ */
+const HANDLE_TIMEOUT = 4000;
+const WRITE_TIMEOUT = 8000;
+
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timeout >${ms}ms`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
 function openDb() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -19,34 +45,46 @@ function openDb() {
 }
 
 async function idbPut(key, value) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const t = db.transaction(STORE, 'readwrite');
-    t.objectStore(STORE).put(value, key);
-    t.oncomplete = () => resolve(true);
-    t.onerror = () => reject(t.error);
-    t.onabort = () => reject(t.error);
-  });
+  const db = await withTimeout(openDb(), HANDLE_TIMEOUT, 'indexedDB open');
+  return withTimeout(
+    new Promise((resolve, reject) => {
+      const t = db.transaction(STORE, 'readwrite');
+      t.objectStore(STORE).put(value, key);
+      t.oncomplete = () => resolve(true);
+      t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error);
+    }),
+    HANDLE_TIMEOUT,
+    'indexedDB put',
+  );
 }
 
 async function idbGet(key) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const t = db.transaction(STORE, 'readonly');
-    const req = t.objectStore(STORE).get(key);
-    req.onsuccess = () => resolve(req.result ?? null);
-    req.onerror = () => reject(req.error);
-  });
+  const db = await withTimeout(openDb(), HANDLE_TIMEOUT, 'indexedDB open');
+  return withTimeout(
+    new Promise((resolve, reject) => {
+      const t = db.transaction(STORE, 'readonly');
+      const req = t.objectStore(STORE).get(key);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    }),
+    HANDLE_TIMEOUT,
+    'indexedDB get',
+  );
 }
 
 async function idbDel(key) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const t = db.transaction(STORE, 'readwrite');
-    t.objectStore(STORE).delete(key);
-    t.oncomplete = () => resolve(true);
-    t.onerror = () => reject(t.error);
-  });
+  const db = await withTimeout(openDb(), HANDLE_TIMEOUT, 'indexedDB open');
+  return withTimeout(
+    new Promise((resolve, reject) => {
+      const t = db.transaction(STORE, 'readwrite');
+      t.objectStore(STORE).delete(key);
+      t.oncomplete = () => resolve(true);
+      t.onerror = () => reject(t.error);
+    }),
+    HANDLE_TIMEOUT,
+    'indexedDB delete',
+  );
 }
 
 export function fsaSupported() {
@@ -88,9 +126,15 @@ export async function mirrorRoot() {
   try {
     const root = await idbGet(KEY_ROOT);
     if (!root) return null;
-    if ((await root.queryPermission({ mode: 'readwrite' })) !== 'granted') return null;
+    const state = await withTimeout(
+      root.queryPermission({ mode: 'readwrite' }),
+      HANDLE_TIMEOUT,
+      'queryPermission',
+    );
+    if (state !== 'granted') return null;
     return root;
-  } catch {
+  } catch (e) {
+    console.warn('[spore] mirrorRoot unavailable:', e && e.message);
     return null;
   }
 }
@@ -103,18 +147,24 @@ export async function writeSilent(relPath, data /* string | Blob */) {
   const root = await mirrorRoot();
   if (!root) return false;
   try {
-    const parts = String(relPath).split('/').filter(Boolean);
-    const fileName = parts.pop();
-    if (!fileName) return false;
-    let dir = root;
-    for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: true });
-    const file = await dir.getFileHandle(fileName, { create: true });
-    const w = await file.createWritable();
-    await w.write(data);
-    await w.close();
-    return true;
+    return await withTimeout(
+      (async () => {
+        const parts = String(relPath).split('/').filter(Boolean);
+        const fileName = parts.pop();
+        if (!fileName) return false;
+        let dir = root;
+        for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: true });
+        const file = await dir.getFileHandle(fileName, { create: true });
+        const w = await file.createWritable();
+        await w.write(data);
+        await w.close();
+        return true;
+      })(),
+      WRITE_TIMEOUT,
+      'silent write',
+    );
   } catch (e) {
-    console.warn('[spore] silent write failed:', e);
+    console.warn('[spore] silent write failed:', e && e.message);
     return false;
   }
 }
@@ -136,14 +186,20 @@ export async function removeSilent(relPath) {
   const root = await mirrorRoot();
   if (!root) return false;
   try {
-    const parts = String(relPath).split('/').filter(Boolean);
-    const fileName = parts.pop();
-    if (!fileName) return false;
-    let dir = root;
-    // 不 create：中间目录不存在就当这文件本来就没落盘
-    for (const part of parts) dir = await dir.getDirectoryHandle(part);
-    await dir.removeEntry(fileName);
-    return true;
+    return await withTimeout(
+      (async () => {
+        const parts = String(relPath).split('/').filter(Boolean);
+        const fileName = parts.pop();
+        if (!fileName) return false;
+        let dir = root;
+        // 不 create：中间目录不存在就当这文件本来就没落盘
+        for (const part of parts) dir = await dir.getDirectoryHandle(part);
+        await dir.removeEntry(fileName);
+        return true;
+      })(),
+      WRITE_TIMEOUT,
+      'silent remove',
+    );
   } catch {
     return false;
   }

@@ -2618,6 +2618,47 @@ def main():
             rev2.screenshot(path=str(SHOTS / "16-review-fetch-image.png"))
             rev2.close()
 
+            # ---------------- 回归：镜像句柄卡死不得拖住回答 ----------------
+            # 旧版 captureFlow 把镜像（失效 FSA 句柄的 queryPermission 在 SW 里**永不 settle**）
+            # await 在 startTurn 之前 → 会话只剩一张截图、agent 永远不回答（用户实测）。
+            # 这里塞一个名字非空的目录句柄 + 把 queryPermission 打成死挂，断言 2s 内起回合。
+            if sw:
+                sw.evaluate(
+                    """async () => {
+                        const root = await navigator.storage.getDirectory();
+                        const d = await root.getDirectoryHandle('mirror-hang-probe', { create: true });
+                        await new Promise((res, rej) => {
+                            const q = indexedDB.open('spore-fs', 1);
+                            q.onupgradeneeded = () => {
+                                if (!q.result.objectStoreNames.contains('handles')) q.result.createObjectStore('handles');
+                            };
+                            q.onsuccess = () => {
+                                const t = q.result.transaction('handles', 'readwrite');
+                                t.objectStore('handles').put(d, 'root');
+                                t.oncomplete = () => res(true);
+                            };
+                            q.onerror = () => rej(q.error);
+                        });
+                        FileSystemDirectoryHandle.prototype.queryPermission = function () {
+                            return new Promise(() => {});
+                        };
+                        return d.name;
+                    }"""
+                )
+                if guard(page, "capture（镜像卡死回归）", lambda: capture(page, 0)) is not None:
+                    started = False
+                    for _ in range(20):
+                        page.wait_for_timeout(100)
+                        if sw.evaluate("async () => globalThis.__spore.running().length") > 0:
+                            started = True
+                            break
+                    log_now = sw.evaluate("async () => await globalThis.__spore.log()")
+                    check(
+                        "镜像句柄卡死时回合仍立即起跑（回归）",
+                        started and any("startTurn" in line for line in log_now),
+                        f"started={started} log={log_now[-3:]}",
+                    )
+
             ctx.close()
     finally:
         server.terminate()

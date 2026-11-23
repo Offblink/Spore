@@ -232,7 +232,14 @@ export function ensureNamed(sess, emit) {
   const legacy = /^解析中/.test(t); // 老构建遗留占位：无论如何都要换掉
   if (!legacy && t !== '新会话') return; // 已有正经名字就不动
   const lastAnswer = sess.messages.filter((m) => m.kind === 'answer').pop();
-  if (!legacy && !lastAnswer) return; // 还没答过题就保持「新会话」占位
+  if (!legacy && !lastAnswer) {
+    // 纯追问会话：截图回合没跑起来、用户直接打字问（或先问了句「你怎么不回答」），
+    // 没有 answer 对象可取名 —— 用最后一条回答正文兜底，别让会话永远叫「新会话」
+    const lastChat = sess.messages.filter((m) => m.role === 'assistant' && m.text).pop();
+    if (!lastChat) return; // 真的一条回答都没有：保持「新会话」占位
+    renameLocal(sess, namingTitle({ title: String(lastChat.text).split('\n')[0] }), emit);
+    return;
+  }
   renameLocal(sess, namingTitle(lastAnswer), emit);
 }
 
@@ -490,6 +497,11 @@ export async function runTurn({ sid, emit, signal, settings }) {
       }
       if (!msg.text && last?.content) msg.text = last.content;
       sess.status = 'done';
+      // 纯追问也要起名：截图回合没起来的会话（历史 bug）靠这条从回答正文补名
+      if (/^新会话$|^解析中/.test(sess.title || '')) {
+        const firstLine = String(msg.text || '').split('\n').find((l) => l.trim()) || '';
+        if (firstLine) renameLocal(sess, namingTitle({ title: firstLine }), emit);
+      }
       await store.flushSave(sess);
       emit({ type: 'turn-end', sid, idx });
     } catch (e) {

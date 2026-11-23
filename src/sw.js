@@ -109,6 +109,11 @@ async function startTurn(sid, opts = {}) {
   }
   store.logEvent(opts.verifyOnly ? `startTurn(仅核实) ${sid}` : `startTurn ${sid}`);
   const settings = await store.getSettings();
+  // 二次检查：上面有 await，init 的自动补跑与 capture 的起跑可能同时进来
+  if (running.has(sid)) {
+    store.logEvent(`startTurn: ${sid} 已在跑（二次检查），忽略重复触发`);
+    return;
+  }
   const ctl = new AbortController();
   running.set(sid, ctl);
   bumpKeepAlive();
@@ -230,6 +235,24 @@ function requestRect(tabId) {
   });
 }
 
+/**
+ * 截图镜像（best-effort）：**只在回合已经起跑之后调用**。
+ * 镜像依赖 FSA 句柄（失效时在 SW 里会永久挂起）或下载通道，任何一环变慢/卡住
+ * 都不允许拖住回答 —— 之前这里被 await 在 startTurn 前面，实测把整个回合卡死。
+ */
+async function mirrorCapture(sess, idx, image) {
+  try {
+    const channel = await mirrorChannel();
+    if (!channel.on) return;
+    await store.mirrorImage(sess, idx, image, { allowDownload: channel.allowDownload });
+    // 先落一版「只有截图」的 md，回答完成后再覆盖
+    store.mirrorSession(sess, { allowDownload: channel.allowDownload }).catch(() => {});
+  } catch (e) {
+    store.logEvent(`mirror skipped ${sess.id}: ${String((e && e.message) || e).slice(0, 160)}`);
+    console.warn('[spore] image mirror failed', e);
+  }
+}
+
 async function captureFlow() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
@@ -296,21 +319,15 @@ async function captureFlow() {
   sess.messages.push({ role: 'user', ts: Date.now(), imageKey, text: rect.note || '' });
   sess.status = 'answering';
   await store.saveSession(sess);
-  try {
-    const channel = await mirrorChannel();
-    if (channel.on) {
-      await store.mirrorImage(sess, idx, image, { allowDownload: channel.allowDownload });
-      // 先落一版「只有截图」的 md，回答完成后再覆盖
-      store.mirrorSession(sess, { allowDownload: channel.allowDownload }).catch(() => {});
-    }
-  } catch (e) {
-    console.warn('[spore] image mirror failed', e);
-  }
-  await updateBadge();
 
   const delivered = broadcast({ type: 'session-created', sid: sess.id, tabId }, tabId);
   console.log(`[spore] session-created ${sess.id} → ${delivered} port(s), tabId=${tabId}`);
-  await startTurn(sess.id);
+  // 先起跑再镜像：镜像（FSA 授权/下载）任何一环卡住都不能拖住回答
+  void startTurn(sess.id).catch((e) =>
+    store.logEvent(`startTurn failed ${sess.id}: ${String((e && e.message) || e).slice(0, 160)}`),
+  );
+  await updateBadge();
+  void mirrorCapture(sess, idx, image);
 }
 
 /**
@@ -346,21 +363,15 @@ async function fetchImageTurn(url, tabId = null) {
   sess.messages.push({ role: 'user', ts: Date.now(), imageKey, text: '' });
   sess.status = 'answering';
   await store.saveSession(sess);
-  try {
-    const channel = await mirrorChannel();
-    if (channel.on) {
-      await store.mirrorImage(sess, 0, image, { allowDownload: channel.allowDownload });
-      // 先落一版「只有图片」的 md，回答完成后再覆盖（与截屏回合同构）
-      store.mirrorSession(sess, { allowDownload: channel.allowDownload }).catch(() => {});
-    }
-  } catch (e) {
-    console.warn('[spore] image mirror failed', e);
-  }
-  await updateBadge();
 
   const delivered = broadcast({ type: 'session-created', sid: sess.id, tabId }, tabId);
   console.log(`[spore] fetch-image session-created ${sess.id} → ${delivered} port(s), tabId=${tabId}`);
-  startTurn(sess.id).catch((e) => console.error('[spore] fetch-image startTurn failed', e));
+  // 与截屏回合同序：起跑优先，镜像 best-effort
+  startTurn(sess.id).catch((e) =>
+    store.logEvent(`startTurn failed ${sess.id}: ${String((e && e.message) || e).slice(0, 160)}`),
+  );
+  await updateBadge();
+  void mirrorCapture(sess, 0, image);
 }
 
 async function cropShot(shot, rect) {
@@ -509,7 +520,10 @@ async function handleContent(msg, port) {
       // 页面内 keydown 通道：若 chrome.commands 已经触发过，400ms 内忽略，避免截两次
       if (Date.now() - lastCaptureAt < 400) return;
       lastCaptureAt = Date.now();
-      void captureFlow().catch((e) => console.error('[spore] capture failed', e));
+      void captureFlow().catch((e) => {
+        store.logEvent(`capture failed: ${String((e && e.message) || e).slice(0, 200)}`);
+        console.error('[spore] capture failed', e);
+      });
       return;
     }
 
@@ -622,7 +636,10 @@ chrome.runtime.onConnect.addListener((port) => {
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'capture-region') {
     lastCaptureAt = Date.now();
-    captureFlow().catch((e) => console.error('[spore] capture failed', e));
+    captureFlow().catch((e) => {
+      store.logEvent(`capture failed: ${String((e && e.message) || e).slice(0, 200)}`);
+      console.error('[spore] capture failed', e);
+    });
     return;
   }
   if (command === 'toggle-drawer') broadcast({ type: 'toggle-drawer' });
@@ -659,20 +676,34 @@ chrome.commands.getAll().then((list) => {
 });
 
 async function init() {
-  // SW 被杀/浏览器重启后，残留的 running 状态一律判为中断
+  // SW 被杀/浏览器重启后，残留的 running 状态一律判为中断。
+  // 例外：会话里**一条 assistant 消息都没有**（连占位 answer 都没建出来）说明回合
+  // 根本没起跑（旧版 captureFlow 被镜像句柄卡死的典型现场）→ 自动补跑一次，别让用户
+  // 只拿到一张截图。真正跑过一半的回合（有占位 answer）只标中断，由用户点 ↻。
   const idx = await store.listSessions();
   let dirty = false;
+  const resume = [];
   for (const e of idx) {
     if (e.status === 'answering' || e.status === 'verifying' || e.status === 'searching') {
       const sess = await store.getSession(e.id);
       if (sess && (sess.status === 'answering' || sess.status === 'verifying' || sess.status === 'searching')) {
+        const neverRan = !(sess.messages || []).some((m) => m.role === 'assistant');
+        const hasUser = (sess.messages || []).some((m) => m.role === 'user');
+        const resumeIt = neverRan && hasUser;
         sess.status = 'interrupted';
         sess.unread = true;
-        sess.errorMsg = '上次回答被中断（扩展重启），可点重试';
+        sess.errorMsg = resumeIt ? '' : '上次回答被中断（扩展重启），可点重试';
         await store.saveSession(sess);
         dirty = true;
+        if (resumeIt) resume.push(sess.id);
       }
     }
+  }
+  for (const sid of resume) {
+    store.logEvent(`auto-resume ${sid}（回合没起跑，自动补答）`);
+    startTurn(sid).catch((e) =>
+      store.logEvent(`auto-resume failed ${sid}: ${String((e && e.message) || e).slice(0, 160)}`),
+    );
   }
   if (dirty) await updateBadge();
   updateBadge().catch(() => {});
@@ -690,7 +721,8 @@ async function init() {
   try {
     for (const e of await store.listSessions()) {
       const t = e.title || '';
-      if (/^解析中/.test(t)) {
+      if (/^解析中/.test(t) || t === '新会话') {
+        // 「新会话」只在有内容（answer 或 chat 回答）时才换名：空白占位保持原样
         const sess = await store.getSession(e.id);
         if (sess) ensureNamed(sess, (ev) => broadcast({ type: 'ev', ev }));
       } else if (/^\d{4}-/.test(t)) {
